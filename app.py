@@ -133,6 +133,19 @@ def get_last_veh_by_plate(plate):
     conn.close()
     return row[0] if row else None
 
+def get_suggested_length(company, vehicle, position):
+    if not company or not vehicle or not position: return 5.0 # default
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        SELECT cable_length_m FROM camera_installations 
+        WHERE company_name = ? AND vehicle_type = ? AND installation_position = ? 
+        ORDER BY timestamp DESC LIMIT 1
+    """, (company, vehicle, position))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else 5.0
+
 # --- UI Setup ---
 st.set_page_config(page_title="Abdul", page_icon="abdul_logo_nobg.png", layout="wide")
 
@@ -301,10 +314,19 @@ if choice == "เพิ่มข้อมูลใหม่":
             entries_list = []
             for r in range(4):
                 c1, c2, c3, c4 = st.columns([2, 1, 2, 1])
+                
+                # CH A
                 with c1: p_a = st.selectbox(f"CH {r*2+1}", options=pos_options, key=f"p_a_{r}")
-                with c2: l_a = st.number_input(f"สาย {r*2+1} (ม.)", min_value=0.0, max_value=50.0, step=0.5, key=f"l_a_{r}", label_visibility="collapsed")
+                comp_for_len = new_comp.strip() if new_comp.strip() else (selected_comp if selected_comp != "-- เลือกจากรายการ --" else "")
+                veh_for_len = new_veh.strip() if new_veh.strip() else (selected_veh if selected_veh != "-- เลือกจากรายการ --" else "")
+                def_len_a = get_suggested_length(comp_for_len, veh_for_len, p_a) if p_a else 5.0
+                with c2: l_a = st.number_input(f"สาย {r*2+1} (ม.)", min_value=0.0, max_value=50.0, step=0.5, value=def_len_a, key=f"l_a_{r}", label_visibility="collapsed")
+                
+                # CH B
                 with c3: p_b = st.selectbox(f"CH {r*2+2}", options=pos_options, key=f"p_b_{r}")
-                with c4: l_b = st.number_input(f"สาย {r*2+2} (ม.)", min_value=0.0, max_value=50.0, step=0.5, key=f"l_b_{r}", label_visibility="collapsed")
+                def_len_b = get_suggested_length(comp_for_len, veh_for_len, p_b) if p_b else 5.0
+                with c4: l_b = st.number_input(f"สาย {r*2+2} (ม.)", min_value=0.0, max_value=50.0, step=0.5, value=def_len_b, key=f"l_b_{r}", label_visibility="collapsed")
+                
                 if p_a: entries_list.append((p_a, l_a))
                 if p_b: entries_list.append((p_b, l_b))
             
@@ -412,9 +434,11 @@ elif choice == "ดูข้อมูลและค้นหา":
                         for r in range(4):
                             qc1, qc2, qc3, qc4 = st.columns([2, 1, 2, 1])
                             with qc1: p1 = st.selectbox(f"CH {r*2+1}", options=qp_opts, key=f"q1_{comp}_{r}")
-                            with qc2: l1 = st.number_input(f"ม. {r*2+1}", 0.0, 50.0, key=f"ql1_{comp}_{r}", label_visibility="collapsed")
+                            q_len1 = get_suggested_length(comp, qv, p1) if p1 else 5.0
+                            with qc2: l1 = st.number_input(f"ม. {r*2+1}", 0.0, 50.0, value=q_len1, key=f"ql1_{comp}_{r}", label_visibility="collapsed")
                             with qc3: p2 = st.selectbox(f"CH {r*2+2}", options=qp_opts, key=f"q2_{comp}_{r}")
-                            with qc4: l2 = st.number_input(f"ม. {r*2+2}", 0.0, 50.0, key=f"ql2_{comp}_{r}", label_visibility="collapsed")
+                            q_len2 = get_suggested_length(comp, qv, p2) if p2 else 5.0
+                            with qc4: l2 = st.number_input(f"ม. {r*2+2}", 0.0, 50.0, value=q_len2, key=f"ql2_{comp}_{r}", label_visibility="collapsed")
                             if p1: q_entries.append((p1, l1))
                             if p2: q_entries.append((p2, l2))
                         if st.form_submit_button("บันทึก"):
