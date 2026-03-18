@@ -124,6 +124,15 @@ def predict_vehicle_type(plate):
     if re.match(r'^\d?[ก-ฮ]{2}\d{1,4}$', plate): return "รถยนต์นั่งส่วนบุคคล (เก๋ง/SUV)"
     return None
 
+def get_last_veh_by_plate(plate):
+    if not plate: return None
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT vehicle_type FROM camera_installations WHERE license_plate = ? ORDER BY timestamp DESC LIMIT 1", (plate.strip(),))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
+
 # --- UI Setup ---
 st.set_page_config(page_title="Abdul", page_icon="abdul_logo_nobg.png", layout="wide")
 
@@ -258,13 +267,30 @@ if choice == "เพิ่มข้อมูลใหม่":
                 new_comp = st.text_input("➕ หรือพิมพ์ชื่อบริษัทใหม่")
                 in_plate = st.text_input("🔢 ป้ายทะเบียนรถ", placeholder="เช่น 70-1234 หรือ 1กข-5555")
             with col2:
-                # Prediction logic
+                # Prediction + Memory logic
                 prediction = predict_vehicle_type(in_plate)
-                if prediction:
+                history_veh = get_last_veh_by_plate(in_plate)
+                
+                if history_veh:
+                    st.success(f"📌 ความจำระบบ: ทะเบียนนี้คือ **{history_veh}**")
+                    if st.button(f"✨ ใช้ {history_veh}"):
+                        st.session_state["suggested_veh"] = history_veh
+                elif prediction:
                     st.info(f"💡 คำแนะนำ: ระบบวิเคราะห์ว่าเป็น **{prediction}**")
                 
-                selected_veh = st.selectbox("🚗 เลือกประเภทรถ", options=["-- เลือกจากรายการ --"] + all_vehicles)
-                new_veh = st.text_input("➕ หรือพิมพ์ประเภทรถใหม่ (ถ้าไม่มีในรายการ)")
+                # Use value from session state if suggested
+                val_veh = st.session_state.get("suggested_veh", "")
+                
+                settings_veh = get_dropdown_options("vehicle")
+                existing_v = sorted(df_existing['vehicle_type'].unique().tolist()) if not df_existing.empty else []
+                all_v_opts = sorted(list(set(settings_veh + existing_v)))
+                
+                selected_veh = st.selectbox("🚗 เลือกประเภทรถ", options=["-- เลือกจากรายการ --"] + all_v_opts)
+                new_veh = st.text_input("➕ หรือพิมพ์ประเภทรถใหม่ (ถ้าไม่มีในรายการ)", value=val_veh)
+                
+                # Reset suggestion after use (optional, but keep it simple)
+                if val_veh: 
+                    st.session_state["suggested_veh"] = "" # Clear for next entry
                 
             st.divider()
             st.markdown("**📸 ระบุตำแหน่งติดตั้ง (CH1 - CH8)**")
