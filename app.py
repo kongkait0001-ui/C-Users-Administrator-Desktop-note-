@@ -16,6 +16,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             company_name TEXT NOT NULL,
             vehicle_type TEXT NOT NULL,
+            license_plate TEXT,
             installation_position TEXT NOT NULL,
             cable_length_m REAL NOT NULL,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -64,13 +65,13 @@ def delete_dropdown_option(category, value):
     conn.commit()
     conn.close()
 
-def add_data(company, vehicle, position, length):
+def add_data(company, vehicle, position, length, plate=""):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute('''
-        INSERT INTO camera_installations (company_name, vehicle_type, installation_position, cable_length_m)
-        VALUES (?, ?, ?, ?)
-    ''', (company, vehicle, position, length))
+        INSERT INTO camera_installations (company_name, vehicle_type, installation_position, cable_length_m, license_plate)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (company, vehicle, position, length, plate))
     conn.commit()
     conn.close()
 
@@ -94,8 +95,34 @@ def get_all_data():
     conn.close()
     return df
 
+# Upgrade DB for old versions (add license_plate if missing)
+def upgrade_db():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    try:
+        c.execute("SELECT license_plate FROM camera_installations LIMIT 1")
+    except:
+        c.execute("ALTER TABLE camera_installations ADD COLUMN license_plate TEXT")
+        conn.commit()
+    conn.close()
+
 # Initialize DB on start
 init_db()
+upgrade_db()
+
+import re
+def predict_vehicle_type(plate):
+    if not plate: return None
+    plate = plate.strip().replace(" ", "")
+    # Patterns for Thai Plates
+    if re.match(r'^[1][0-9]-\d{4}$', plate): return "รถโดยสารสาธารณะ (บัส)"
+    if re.match(r'^[3][0-9]-\d{4}$', plate): return "รถโดยสารไม่ประจำทาง (30-)"
+    if re.match(r'^[7][0-9]-\d{4}$', plate): return "รถบรรทุกสาธารณะ (หัวลาก/พ่วง)"
+    if re.match(r'^[89][0-9]-\d{4}$', plate): return "รถบรรทุกส่วนบุคคล (80-)"
+    if re.match(r'^\d?[นผฒ][ก-ฮ]\d{1,4}$', plate): return "รถกระบะ (ป้ายเขียว)"
+    if re.match(r'^\d?[นม][ก-ฮ]\d{1,4}$', plate): return "รถตู้/รถยนต์นั่งส่วนบุคคล (>7 ที่นั่ง)"
+    if re.match(r'^\d?[ก-ฮ]{2}\d{1,4}$', plate): return "รถยนต์นั่งส่วนบุคคล (เก๋ง/SUV)"
+    return None
 
 # --- UI Setup ---
 st.set_page_config(page_title="Abdul", page_icon="abdul_logo_nobg.png", layout="wide")
@@ -229,9 +256,15 @@ if choice == "เพิ่มข้อมูลใหม่":
             with col1:
                 selected_comp = st.selectbox("🏢 เลือกบริษัท", options=["-- เลือกจากรายการ --"] + all_companies)
                 new_comp = st.text_input("➕ หรือพิมพ์ชื่อบริษัทใหม่")
+                in_plate = st.text_input("🔢 ป้ายทะเบียนรถ", placeholder="เช่น 70-1234 หรือ 1กข-5555")
             with col2:
+                # Prediction logic
+                prediction = predict_vehicle_type(in_plate)
+                if prediction:
+                    st.info(f"💡 คำแนะนำ: ระบบวิเคราะห์ว่าเป็น **{prediction}**")
+                
                 selected_veh = st.selectbox("🚗 เลือกประเภทรถ", options=["-- เลือกจากรายการ --"] + all_vehicles)
-                new_veh = st.text_input("➕ หรือพิมพ์ประเภทรถใหม่")
+                new_veh = st.text_input("➕ หรือพิมพ์ประเภทรถใหม่ (ถ้าไม่มีในรายการ)")
                 
             st.divider()
             st.markdown("**📸 ระบุตำแหน่งติดตั้ง (CH1 - CH8)**")
@@ -260,8 +293,8 @@ if choice == "เพิ่มข้อมูลใหม่":
                         if vehicle_type not in settings_vehicles: add_dropdown_option("vehicle", vehicle_type)
                         
                         for p, l in entries_list:
-                            add_data(company_name, vehicle_type, p, l)
-                        st.success(f"✅ บันทึกข้อมูลของ {company_name} (รถ: {vehicle_type}) เรียบร้อย!")
+                            add_data(company_name, vehicle_type, p, l, in_plate.strip())
+                        st.success(f"✅ บันทึกข้อมูลของ {company_name} (ทะเบียน: {in_plate}) เรียบร้อย!")
                         st.balloons()
                     else:
                         st.warning("⚠️ กรุณาระบุตำแหน่งอย่างน้อย 1 จุด")
@@ -458,6 +491,7 @@ elif choice == "นำเข้าข้อมูลจาก Excel":
             # Mapping columns (allowing for minor variations in naming)
             col_map = {
                 'ชื่อบริษัท': 'company_name',
+                'ทะเบียนรถ': 'license_plate',
                 'ประเภทรถ': 'vehicle_type',
                 'ตำแหน่งติดตั้ง': 'installation_position',
                 'ความยาวสาย (เมตร)': 'cable_length_m'
