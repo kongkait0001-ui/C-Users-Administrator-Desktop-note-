@@ -174,43 +174,42 @@ if 'started' not in st.session_state:
     st.session_state.started = False
 
 if not st.session_state.started:
-    st.markdown("<div style='height: 5vh;'></div>", unsafe_allow_html=True)
-    c1, mid, c3 = st.columns([0.1, 0.8, 0.1])
-    with mid:
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
         import base64
         logo_path = "abdul_logo_nobg.png"
         if os.path.exists(logo_path):
             with open(logo_path, "rb") as img_file:
                 b64_string = base64.b64encode(img_file.read()).decode()
-            st.markdown(f'<img src="data:image/png;base64,{b64_string}" class="floating-img">', unsafe_allow_html=True)
+            st.markdown(f'<img src="data:image/png;base64,{b64_string}" class="floating-img" style="max-width: 250px;">', unsafe_allow_html=True)
         else:
             st.info("⚠️ ไม่พบไฟล์โลโก้ (Logo not found)")
             
-        st.markdown("<h1 style='text-align: center; font-size: 3.5em; margin-bottom: 0px;'>Abdul</h1>", unsafe_allow_html=True)
-        st.markdown("<h3 style='text-align: center; color: #475569; margin-top: -10px; line-height: 1.2;'>AI CCTV Data Management System</h3>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #64748b; margin-top: 5px; font-size: 1.1em;'>ระบบจัดการข้อมูลการติดตั้งกล้อง AI CCTV และความยาวสายเคเบิล</p>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align: center; color: #1e293b;'>Abdul</h1>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center; color: #475569;'>AI CCTV Data Management System</h3>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #64748b;'>ระบบจัดการข้อมูลการติดตั้งกล้อง AI CCTV และความยาวสายเคเบิล</p>", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
         
-        if st.button("🚀 เข้าสู่ระบบ (Start Program)", key="start_btn_main"):
-            st.session_state.started = True
-            st.rerun()
+        btn_c1, btn_c2, btn_c3 = st.columns([1, 2, 1])
+        with btn_c2:
+            if st.button("🚀 เข้าสู่ระบบ (Start Program)"):
+                st.session_state.started = True
+                st.rerun()
     st.stop()
 
-col_logo, col_title = st.columns([1, 5])
-with col_logo:
+col1, col2 = st.columns([1, 10])
+with col1:
     st.image("abdul_logo_nobg.png", width=70)
-with col_title:
-    st.markdown("<h2 style='margin-bottom: 0px;'>Abdul - AI CCTV System</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='color: #64748b; font-size: 0.9em;'>ระบบจัดการข้อมูลการติดตั้งกล้อง AI CCTV</p>", unsafe_allow_html=True)
+with col2:
+    st.title("Abdul - AI CCTV System")
 
 # Sidebar navigation
 menu = ["เพิ่มข้อมูลใหม่", "ดูข้อมูลและค้นหา", "ตั้งค่าตัวเลือก Dropdown", "นำเข้าข้อมูลจาก Excel"]
 choice = st.sidebar.selectbox("เมนูการใช้งาน", menu)
 
 if choice == "เพิ่มข้อมูลใหม่":
-    st.subheader("📝 บันทึกข้อมูลการติดตั้ง")
-    
-    tab1, tab2 = st.tabs(["✨ บันทึกทีละรายการ", "📊 บันทึกแบบตาราง (หลายบริษัท)"])
+    st.subheader("📝 กรอกข้อมูลการติดตั้งใหม่")
     
     df_existing = get_all_data()
     settings_companies = get_dropdown_options("company")
@@ -221,122 +220,49 @@ if choice == "เพิ่มข้อมูลใหม่":
     existing_vehicles_data = sorted(df_existing['vehicle_type'].unique().tolist()) if not df_existing.empty else []
     all_vehicles = sorted(list(set(settings_vehicles + existing_vehicles_data)))
     
-    with tab1:
-        st.markdown("<div class='company-card'>", unsafe_allow_html=True)
-        with st.form("add_form", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                selected_comp = st.selectbox("🏢 ชื่อบริษัท", options=["-- เลือกจากรายการ --"] + all_companies)
-                new_comp = st.text_input("➕ เพิ่มชื่อบริษัทใหม่ (ถ้าไม่มีในรายการ)")
-            with col2:
-                selected_veh = st.selectbox("🚗 ประเภทรถ", options=["-- เลือกจากรายการ --"] + all_vehicles)
-                new_veh = st.text_input("➕ เพิ่มประเภทรถใหม่")
+    with st.form("add_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            selected_comp = st.selectbox("ชื่อบริษัท (เลือกจากรายการ)", options=["-- เลือกจากรายการ --"] + all_companies)
+            new_comp = st.text_input("➕ พิมพ์ชื่อบริษัทใหม่")
+        with col2:
+            selected_veh = st.selectbox("ประเภทรถ (เลือกจากรายการ)", options=["-- เลือกจากรายการ --"] + all_vehicles)
+            new_veh = st.text_input("➕ พิมพ์ประเภทรถใหม่")
+            
+        st.markdown("---")
+        st.markdown("**📸 ระบุตำแหน่งที่ติดตั้งและความยาวสาย**")
+        
+        pos_options = [""] + get_dropdown_options("position")
+        len_options = [0.0] + [float(i) for i in range(1, 17)]
+        
+        positions = []
+        lengths = []
+        for i in range(1, 9):
+            cp, cl = st.columns(2)
+            with cp:
+                p = st.selectbox(f"ตำแหน่งที่ {i}", options=pos_options, key=f"pos_{i}")
+                positions.append(p)
+            with cl:
+                l = st.selectbox(f"สาย {i} (ม.)", options=len_options, key=f"len_{i}")
+                lengths.append(l)
+            
+        if st.form_submit_button("บันทึกข้อมูล", use_container_width=True):
+            company_name = new_comp.strip() if new_comp.strip() else (selected_comp if selected_comp != "-- เลือกจากรายการ --" else "")
+            vehicle_type = new_veh.strip() if new_veh.strip() else (selected_veh if selected_veh != "-- เลือกจากรายการ --" else "")
+            
+            if company_name and vehicle_type:
+                added_count = 0
+                for pos, length in zip(positions, lengths):
+                    if pos.strip():
+                        add_data(company_name, vehicle_type, pos.strip(), length)
+                        added_count += 1
                 
-            st.divider()
-            st.markdown("**📸 ระบุตำแหน่งติดตั้งและความยาวสาย (ระบุเฉพาะจุดที่มีการติดตั้ง)**")
-            
-            pos_options = [""] + get_dropdown_options("position")
-            len_options = [0.0] + [float(i) for i in range(1, 21)] # Expanded to 20m
-            
-            # Grid layout for cameras (4 rows of 2 pairs)
-            for r in range(4):
-                c1, c2, c3, c4 = st.columns([2, 1, 2, 1])
-                # Camera Slot 1 in row
-                with c1: pos_a = st.selectbox(f"จุดที่ {r*2+1}", options=pos_options, key=f"pos_a_{r}")
-                with c2: len_a = st.selectbox(f"สาย (ม.)", options=len_options, key=f"len_a_{r}")
-                # Camera Slot 2 in row
-                with c3: pos_b = st.selectbox(f"จุดที่ {r*2+2}", options=pos_options, key=f"pos_b_{r}")
-                with c4: len_b = st.selectbox(f"สาย (ม.)", options=len_options, key=f"len_b_{r}")
-                
-                # Store if not empty
-                if 'form_data' not in st.session_state: st.session_state.form_data = []
-            
-            submit_button = st.form_submit_button("💾 บันทึกข้อมูลทั้งหมด", use_container_width=True)
-            
-            if submit_button:
-                company_name = new_comp.strip() if new_comp.strip() else (selected_comp if selected_comp != "-- เลือกจากรายการ --" else "")
-                vehicle_type = new_veh.strip() if new_veh.strip() else (selected_veh if selected_veh != "-- เลือกจากรายการ --" else "")
-                
-                if company_name and vehicle_type:
-                    # Collect all inputs
-                    entries = []
-                    for i in range(4):
-                        pa = st.session_state[f"pos_a_{i}"]
-                        la = st.session_state[f"len_a_{i}"]
-                        pb = st.session_state[f"pos_b_{i}"]
-                        lb = st.session_state[f"len_b_{i}"]
-                        if pa: entries.append((pa, la))
-                        if pb: entries.append((pb, lb))
-                        
-                    if entries:
-                        if company_name not in settings_companies: add_dropdown_option("company", company_name)
-                        if vehicle_type not in settings_vehicles: add_dropdown_option("vehicle", vehicle_type)
-                        
-                        for p, l in entries:
-                            add_data(company_name, vehicle_type, p, l)
-                        st.success(f"✅ บันทึกข้อมูลบริษัท {company_name} เรียบร้อย!")
-                        st.balloons()
-                    else:
-                        st.warning("⚠️ กรุณาระบุตำแหน่งอย่างน้อย 1 จุด")
+                if added_count > 0:
+                    st.success(f"✅ บันทึกข้อมูลบริษัท {company_name} เรียบร้อย!")
                 else:
-                    st.error("⚠️ กรุณาระบุชื่อบริษัทและประเภทรถ")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with tab2:
-        st.markdown("### 📋 กรอกแบบตาราง Excel")
-        st.info("คุณสามารถคัดลอกข้อมูลจาก Excel มาวาง หรือพิมพ์ลงในตารางนี้ได้กี่บริษัทก็ได้พร้อมกันครับ")
-        
-        # Template for batch entry
-        if 'batch_df' not in st.session_state:
-            st.session_state.batch_df = pd.DataFrame([
-                {"บริษัท": "", "ประเภทรถ": "", "ตำแหน่ง": "", "ความยาวสาย (ม.)": 0.0}
-                for _ in range(10) # default 10 rows
-            ])
-            
-        edited_df = st.data_editor(
-            st.session_state.batch_df,
-            num_rows="dynamic",
-            use_container_width=True,
-            column_config={
-                "บริษัท": st.column_config.TextColumn("🏢 ชื่อบริษัท", required=True),
-                "ประเภทรถ": st.column_config.TextColumn("🚗 ประเภทรถ", required=True),
-                "ตำแหน่ง": st.column_config.SelectboxColumn("📸 ตำแหน่ง", options=get_dropdown_options("position"), required=True),
-                "ความยาวสาย (ม.)": st.column_config.NumberColumn("📏 สาย (ม.)", min_value=0, max_value=50, step=0.5)
-            },
-            key="batch_editor"
-        )
-        
-        if st.button("🚀 บันทึกข้อมูลทั้งหมดจากตาราง", type="primary", use_container_width=True):
-            # Filter valid rows
-            valid_rows = edited_df[
-                (edited_df["บริษัท"].str.strip() != "") & 
-                (edited_df["ประเภทรถ"].str.strip() != "") & 
-                (edited_df["ตำแหน่ง"].str.strip() != "")
-            ]
-            
-            if not valid_rows.empty:
-                count = 0
-                for _, row in valid_rows.iterrows():
-                    comp = row["บริษัท"].strip()
-                    veh = row["ประเภทรถ"].strip()
-                    pos = row["ตำแหน่ง"].strip()
-                    l = float(row["ความยาวสาย (ม.)"])
-                    
-                    # Add data
-                    add_data(comp, veh, pos, l)
-                    
-                    # Update settings if new
-                    if comp not in settings_companies: add_dropdown_option("company", comp)
-                    if veh not in settings_vehicles: add_dropdown_option("vehicle", veh)
-                    count += 1
-                
-                st.success(f"✅ บันทึกข้อมูลทั้งหมด {count} รายการ เรียบร้อยแล้ว!")
-                st.balloons()
-                # Clear session state for table if success
-                del st.session_state.batch_df
-                st.rerun()
+                    st.warning("⚠️ กรุณาระบุตำแหน่งที่ติดตั้ง")
             else:
-                st.warning("⚠️ ไม่พบข้อมูลที่ครบถ้วนสำหรับบันทึก (กรุณาระบุบริษัท, รถ และตำแหน่ง)")
+                st.error("⚠️ กรุณากรอกชื่อบริษัทและประเภทรถ")
 
 elif choice == "ดูข้อมูลและค้นหา":
     st.subheader("🔍 ค้นหาและตรวจสอบข้อมูล")
