@@ -153,24 +153,28 @@ def get_suggested_length(company, vehicle, position):
 def analyze_camera_angle(image_bytes, api_key):
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Use more robust model name
+        model = genai.GenerativeModel(model_name='gemini-1.5-flash')
         
-        # Prepare the image
-        img = Image.open(io.BytesIO(image_bytes))
+        # Prepare the image as a dictionary for the new API
+        img_part = {
+            "mime_type": "image/jpeg",
+            "data": image_bytes
+        }
         
         prompt = """
         This is a CCTV screenshot from a vehicle. 
         Identify the installation position from these choices: 
         (Front View/Cabin, Rear View/Tail, Left Side, Right Side, Cargo Area, Upper Deck).
-        Tell me ONLY the name of the position that matches best. 
-        If it's a truck camera, be specific if it's the view looking from the front, back, or inside.
-        Answer in short English words (the position name).
+        Tell me ONLY the name (1-2 words) that matches best. 
+        Answer in short English words.
         """
         
-        response = model.generate_content([prompt, img])
+        response = model.generate_content([prompt, img_part])
         return response.text.strip()
     except Exception as e:
-        return f"Error: {str(e)}"
+        # If flash fails, try a fallback or return error
+        return f"AI Error: {str(e)}"
 
 # --- UI Setup ---
 st.set_page_config(page_title="Abdul", page_icon="abdul_logo_nobg.png", layout="wide")
