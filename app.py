@@ -154,13 +154,6 @@ def analyze_camera_angle(image_bytes, api_key):
     try:
         genai.configure(api_key=api_key)
         
-        # Try Flash first, then Pro Vision
-        model_name = 'gemini-1.5-flash'
-        try:
-            model = genai.GenerativeModel(model_name=model_name)
-        except:
-            model = genai.GenerativeModel(model_name='gemini-pro-vision')
-        
         img_part = {
             "mime_type": "image/jpeg",
             "data": image_bytes
@@ -174,8 +167,17 @@ def analyze_camera_angle(image_bytes, api_key):
         Answer in short English words.
         """
         
-        response = model.generate_content([prompt, img_part])
-        return response.text.strip()
+        # Try Flash first
+        try:
+            model = genai.GenerativeModel(model_name='gemini-1.5-flash')
+            response = model.generate_content([prompt, img_part])
+            return response.text.strip()
+        except:
+            # Fallback to Pro Vision (old stable model)
+            model = genai.GenerativeModel(model_name='gemini-pro-vision')
+            response = model.generate_content([prompt, img_part])
+            return response.text.strip()
+            
     except Exception as e:
         return f"AI Error: {str(e)}"
 
