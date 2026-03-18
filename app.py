@@ -4,6 +4,10 @@ import pandas as pd
 import openpyxl
 import os
 import io
+import base64
+import re
+import google.generativeai as genai
+from PIL import Image
 
 # --- Configuration & Database Setup ---
 DB_FILE = "cctv_data.db"
@@ -146,6 +150,28 @@ def get_suggested_length(company, vehicle, position):
     conn.close()
     return row[0] if row else 5.0
 
+def analyze_camera_angle(image_bytes, api_key):
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        # Prepare the image
+        img = Image.open(io.BytesIO(image_bytes))
+        
+        prompt = """
+        This is a CCTV screenshot from a vehicle. 
+        Identify the installation position from these choices: 
+        (Front View/Cabin, Rear View/Tail, Left Side, Right Side, Cargo Area, Upper Deck).
+        Tell me ONLY the name of the position that matches best. 
+        If it's a truck camera, be specific if it's the view looking from the front, back, or inside.
+        Answer in short English words (the position name).
+        """
+        
+        response = model.generate_content([prompt, img])
+        return response.text.strip()
+    except Exception as e:
+        return f"Error: {str(e)}"
+
 # --- UI Setup ---
 st.set_page_config(page_title="Abdul", page_icon="abdul_logo_nobg.png", layout="wide")
 
@@ -254,6 +280,9 @@ with col2:
     st.title("Abdul - AI CCTV System")
 
 # Sidebar navigation
+st.sidebar.markdown("### 🔑 ตั้งค่า AI")
+gemini_api_key = st.sidebar.text_input("Gemini API Key", type="password", help="ขอรับ API Key ฟรีได้ที่เว็บ Google AI Studio")
+
 menu = ["เพิ่มข้อมูลใหม่", "ดูข้อมูลและค้นหา", "ตั้งค่าตัวเลือก Dropdown", "นำเข้าข้อมูลจาก Excel"]
 choice = st.sidebar.selectbox("เมนูการใช้งาน", menu)
 
@@ -272,6 +301,23 @@ if choice == "เพิ่มข้อมูลใหม่":
     all_vehicles = sorted(list(set(settings_vehicles + existing_vehicles_data)))
     
     with tab1:
+        # AI Vision Section
+        st.markdown("<div class='company-card' style='background: #f0f7ff; border-left: 5px solid #007bff;'>", unsafe_allow_html=True)
+        st.markdown("#### 🦅 ค้นหาตำแหน่งด้วย AI (Vision Assistant)")
+        if not gemini_api_key:
+            st.warning("⚠️ กรุณาใส่ Gemini API Key ที่แถบเมนูข้างเพื่อเปิดใช้ระบบวิเคราะห์ภาพ")
+        
+        uploaded_file = st.file_uploader("📸 ลากรูปภาพมุมกล้องมาวางเพื่อวิเคราะห์ตำแหน่ง", type=["jpg", "png", "jpeg"])
+        
+        if uploaded_file and gemini_api_key:
+            with st.spinner("AI กำลังจ้องมองภาพและวิเคราะห์มุมกล้อง..."):
+                img_data = uploaded_file.read()
+                ai_result = analyze_camera_angle(img_data, gemini_api_key)
+                st.info(f"✨ AI มองว่าเป็นมุม: **{ai_result}**")
+                # Attempt to match with existing dropdown or use as new
+                st.session_state["ai_suggested_pos"] = ai_result
+        st.markdown("</div>", unsafe_allow_html=True)
+
         st.markdown("<div class='company-card'>", unsafe_allow_html=True)
         with st.form("add_form_final", clear_on_submit=False): # Don't clear to keep company name
             col1, col2 = st.columns(2)
@@ -315,10 +361,20 @@ if choice == "เพิ่มข้อมูลใหม่":
             for r in range(4):
                 c1, c2, c3, c4 = st.columns([2, 1, 2, 1])
                 
+                # Suggested value from AI for the FIRST channel focused
+                ai_pos = st.session_state.get("ai_suggested_pos", "")
+                
                 # CH A
-                with c1: p_a = st.selectbox(f"CH {r*2+1}", options=pos_options, key=f"p_a_{r}")
+                with c1: 
+                    p_a = st.selectbox(f"CH {r*2+1}", options=pos_options, key=f"p_a_{r}")
+                
                 comp_for_len = new_comp.strip() if new_comp.strip() else (selected_comp if selected_comp != "-- เลือกจากรายการ --" else "")
                 veh_for_len = new_veh.strip() if new_veh.strip() else (selected_veh if selected_veh != "-- เลือกจากรายการ --" else "")
+                
+                # Use AI suggestion for the first empty CH
+                if ai_pos and not p_a:
+                    st.toast(f"AI แนะนำตำแหน่ง: {ai_pos}")
+                
                 def_len_a = get_suggested_length(comp_for_len, veh_for_len, p_a) if p_a else 5.0
                 with c2: l_a = st.number_input(f"สาย {r*2+1} (ม.)", min_value=0.0, max_value=50.0, step=0.5, value=def_len_a, key=f"l_a_{r}", label_visibility="collapsed")
                 
