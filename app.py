@@ -364,8 +364,6 @@ elif choice == "ดูข้อมูลและค้นหา":
                                 st.success("เพิ่มข้อมูลสำเร็จ!")
                                 st.rerun()
                             else: st.error("กรุณาระบุข้อมูลให้ครบ")
-    else:
-        st.info("ยังไม่มีข้อมูลในระบบ!")
 elif choice == "ตั้งค่าตัวเลือก Dropdown":
     st.subheader("⚙️ จัดการรายการตัวเลือก Dropdown")
     
