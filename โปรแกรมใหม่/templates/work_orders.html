@@ -1,0 +1,50 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+    <div>
+        <h1 style="font-size: 2rem; margin-bottom: 0.5rem;">ใบงาน (Work Orders)</h1>
+        <p style="color: var(--text-muted);">จัดการและติดตามสถานะงานติดตั้ง</p>
+    </div>
+    <button class="btn-primary">+ สร้างใบงานใหม่</button>
+</div>
+
+<div class="glass-card">
+    <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+            <tr style="text-align: left; color: var(--text-muted); font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                <th style="padding: 1rem;">ID</th>
+                <th style="padding: 1rem;">ลูกค้า</th>
+                <th style="padding: 1rem;">ทะเบียนรถ</th>
+                <th style="padding: 1rem;">ช่าง</th>
+                <th style="padding: 1rem;">สถานะ</th>
+                <th style="padding: 1rem;">วันที่สร้าง</th>
+                <th style="padding: 1rem;">จัดการ</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for order in orders %}
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <td style="padding: 1rem; font-weight: 600;">{{ order.order_number }}</td>
+                <td style="padding: 1rem;">{{ order.client_name }}</td>
+                <td style="padding: 1rem;">{{ order.vehicle_plate }}</td>
+                <td style="padding: 1rem; color: var(--text-muted);">{{ order.technician_id }}</td>
+                <td style="padding: 1rem;">
+                    <span class="badge badge-{{ 'pending' if order.status == 'pending' else 'success' }}">
+                        {{ order.status }}
+                    </span>
+                </td>
+                <td style="padding: 1rem; color: var(--text-muted); font-size: 0.85rem;">
+                    {{ order.created_at.strftime('%Y-%m-%d %H:%M') }}
+                </td>
+                <td style="padding: 1rem;">
+                    <button class="btn-primary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">เปิดดู</button>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" style="padding: 2rem; text-align: center; color: var(--text-muted);">ไม่พบข้อมูลใบงาน</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
