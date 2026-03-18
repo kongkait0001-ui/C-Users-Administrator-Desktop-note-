@@ -153,10 +153,14 @@ def get_suggested_length(company, vehicle, position):
 def analyze_camera_angle(image_bytes, api_key):
     try:
         genai.configure(api_key=api_key)
-        # Use more robust model name
-        model = genai.GenerativeModel(model_name='gemini-1.5-flash')
         
-        # Prepare the image as a dictionary for the new API
+        # Try Flash first, then Pro Vision
+        model_name = 'gemini-1.5-flash'
+        try:
+            model = genai.GenerativeModel(model_name=model_name)
+        except:
+            model = genai.GenerativeModel(model_name='gemini-pro-vision')
+        
         img_part = {
             "mime_type": "image/jpeg",
             "data": image_bytes
@@ -173,7 +177,6 @@ def analyze_camera_angle(image_bytes, api_key):
         response = model.generate_content([prompt, img_part])
         return response.text.strip()
     except Exception as e:
-        # If flash fails, try a fallback or return error
         return f"AI Error: {str(e)}"
 
 # --- UI Setup ---
