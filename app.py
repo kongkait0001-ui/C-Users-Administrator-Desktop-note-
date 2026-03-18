@@ -150,35 +150,37 @@ def get_suggested_length(company, vehicle, position):
     conn.close()
     return row[0] if row else 5.0
 
-def analyze_camera_angle(image_bytes, api_key):
+def analyze_camera_angle(image_bytes, api_key, available_options):
     try:
         genai.configure(api_key=api_key)
         
-        # Dynamic discovery of available vision models
+        # Dynamic discovery of vision models
         vision_models = []
         try:
             for m in genai.list_models():
                 if 'generateContent' in m.supported_generation_methods:
-                    # Look for flash or pro vision strings
                     if 'gemini' in m.name and ('flash' in m.name or 'vision' in m.name):
                         vision_models.append(m.name)
-            
-            # Default fallbacks if list_models is restricted
-            if not vision_models:
-                vision_models = ['models/gemini-1.5-flash', 'models/gemini-pro-vision']
-        except:
-            vision_models = ['models/gemini-1.5-flash', 'models/gemini-pro-vision']
+            if not vision_models: vision_models = ['models/gemini-1.5-flash', 'models/gemini-pro-vision']
+        except: vision_models = ['models/gemini-1.5-flash', 'models/gemini-pro-vision']
 
-        img_part = {
-            "mime_type": "image/jpeg",
-            "data": image_bytes
-        }
+        img_part = { "mime_type": "image/jpeg", "data": image_bytes }
         
-        prompt = """
-        This is a CCTV screenshot from a vehicle. 
-        Identify the installation position: (Front View, Rear View, Left Side, Right Side, Cargo Area, Upper Deck).
-        Tell me ONLY the name (1-2 words) that matches best. 
-        Answer in short English words.
+        # Prepare list of options for AI
+        opts_str = ", ".join(available_options)
+        
+        prompt = f"""
+        You are an expert CCTV installation technician for TRUCKS and LOGISTICS vehicles.
+        Look at this screenshot and identify the camera's position from this list: [{opts_str}].
+        
+        VISUAL CLUES TO LOOK FOR:
+        1. Front/Cabin/Driver View: Look for a steering wheel, dashboard, driver's seat, gear stick, or the view looking out the front windshield. If it's a DOME camera inside, it MUST be the Cabin/Driver area.
+        2. Rear View/Tail: Look for the road behind the truck, the back doors of a container, a trailer hitch, or license plates of following cars.
+        3. Side View (Left/Right): Look for the side of the truck body, tires, or looking down the side mirrors.
+        4. Cargo Area: Look for the inside of a container or the back bed of a truck with goods.
+        
+        Your task: Choose the EXACT text from the list that matches best.
+        Return ONLY the text from the list.
         """
         
         last_err = ""
@@ -189,10 +191,9 @@ def analyze_camera_angle(image_bytes, api_key):
                 return response.text.strip()
             except Exception as inner_e:
                 last_err = str(inner_e)
-                continue # Try next model
+                continue
         
-        return f"AI Error (No models worked): {last_err}"
-            
+        return f"AI Error: {last_err}"
     except Exception as e:
         return f"AI Config Error: {str(e)}"
 
@@ -334,10 +335,12 @@ if choice == "เพิ่มข้อมูลใหม่":
         uploaded_file = st.file_uploader("📸 ลากรูปภาพมุมกล้องมาวางเพื่อวิเคราะห์ตำแหน่ง", type=["jpg", "png", "jpeg"])
         
         if uploaded_file and gemini_api_key:
-            with st.spinner("AI กำลังจ้องมองภาพและวิเคราะห์มุมกล้อง..."):
+            with st.spinner("AI กำลังจ้องมองภาพและวิเคราะห์ตำแหน่งติดตั้ง..."):
                 img_data = uploaded_file.read()
-                ai_result = analyze_camera_angle(img_data, gemini_api_key)
-                st.info(f"✨ AI มองว่าเป็นมุม: **{ai_result}**")
+                # Pass current dropdown options to AI to ensure exact match
+                all_pos_opts = get_dropdown_options("position")
+                ai_result = analyze_camera_angle(img_data, gemini_api_key, all_pos_opts)
+                st.info(f"✨ AI เลือกตำแหน่ง: **{ai_result}**")
                 # Attempt to match with existing dropdown or use as new
                 st.session_state["ai_suggested_pos"] = ai_result
         st.markdown("</div>", unsafe_allow_html=True)
