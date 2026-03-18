@@ -154,6 +154,21 @@ def analyze_camera_angle(image_bytes, api_key):
     try:
         genai.configure(api_key=api_key)
         
+        # Dynamic discovery of available vision models
+        vision_models = []
+        try:
+            for m in genai.list_models():
+                if 'generateContent' in m.supported_generation_methods:
+                    # Look for flash or pro vision strings
+                    if 'gemini' in m.name and ('flash' in m.name or 'vision' in m.name):
+                        vision_models.append(m.name)
+            
+            # Default fallbacks if list_models is restricted
+            if not vision_models:
+                vision_models = ['models/gemini-1.5-flash', 'models/gemini-pro-vision']
+        except:
+            vision_models = ['models/gemini-1.5-flash', 'models/gemini-pro-vision']
+
         img_part = {
             "mime_type": "image/jpeg",
             "data": image_bytes
@@ -161,25 +176,25 @@ def analyze_camera_angle(image_bytes, api_key):
         
         prompt = """
         This is a CCTV screenshot from a vehicle. 
-        Identify the installation position from these choices: 
-        (Front View/Cabin, Rear View/Tail, Left Side, Right Side, Cargo Area, Upper Deck).
+        Identify the installation position: (Front View, Rear View, Left Side, Right Side, Cargo Area, Upper Deck).
         Tell me ONLY the name (1-2 words) that matches best. 
         Answer in short English words.
         """
         
-        # Try Flash first
-        try:
-            model = genai.GenerativeModel(model_name='gemini-1.5-flash')
-            response = model.generate_content([prompt, img_part])
-            return response.text.strip()
-        except:
-            # Fallback to Pro Vision (old stable model)
-            model = genai.GenerativeModel(model_name='gemini-pro-vision')
-            response = model.generate_content([prompt, img_part])
-            return response.text.strip()
+        last_err = ""
+        for m_name in vision_models:
+            try:
+                model = genai.GenerativeModel(model_name=m_name)
+                response = model.generate_content([prompt, img_part])
+                return response.text.strip()
+            except Exception as inner_e:
+                last_err = str(inner_e)
+                continue # Try next model
+        
+        return f"AI Error (No models worked): {last_err}"
             
     except Exception as e:
-        return f"AI Error: {str(e)}"
+        return f"AI Config Error: {str(e)}"
 
 # --- UI Setup ---
 st.set_page_config(page_title="Abdul", page_icon="abdul_logo_nobg.png", layout="wide")
