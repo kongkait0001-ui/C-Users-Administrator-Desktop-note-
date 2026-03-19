@@ -33,6 +33,12 @@ def init_db():
             option_value TEXT NOT NULL
         )
     ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS ai_memory (
+            image_hash TEXT PRIMARY KEY,
+            position TEXT NOT NULL
+        )
+    ''')
     c.execute("SELECT COUNT(*) FROM dropdown_options")
     if c.fetchone()[0] == 0:
         defaults = [
@@ -42,6 +48,25 @@ def init_db():
             ("position", "บนกระจกซ้าย"), ("position", "บนกระจกขวา"), ("position", "ในตู้สินค้า"), ("position", "ส่องหลังรถ")
         ]
         c.executemany("INSERT INTO dropdown_options (category, option_value) VALUES (?, ?)", defaults)
+    conn.commit()
+    conn.close()
+
+import hashlib
+def get_image_hash(image_bytes):
+    return hashlib.md5(image_bytes).hexdigest()
+
+def get_ai_memory(image_hash):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT position FROM ai_memory WHERE image_hash = ?", (image_hash,))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+def save_ai_memory(image_hash, position):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO ai_memory (image_hash, position) VALUES (?, ?)", (image_hash, position))
     conn.commit()
     conn.close()
 
@@ -336,11 +361,41 @@ if choice == "เพิ่มข้อมูลใหม่":
         
         if uploaded_file and gemini_api_key:
             with st.spinner("AI กำลังจ้องมองภาพและวิเคราะห์ตำแหน่งติดตั้ง..."):
-                img_data = uploaded_file.read()
-                # Pass current dropdown options to AI to ensure exact match
+                img_data = uploaded_file.getvalue()
+                img_hash = get_image_hash(img_data)
+                
+                # Check memory
+                remembered_pos = get_ai_memory(img_hash)
                 all_pos_opts = get_dropdown_options("position")
-                ai_result = analyze_camera_angle(img_data, gemini_api_key, all_pos_opts)
-                st.info(f"✨ AI เลือกตำแหน่ง: **{ai_result}**")
+                
+                if remembered_pos:
+                    ai_result = remembered_pos
+                    st.info(f"🧠 **ระบบจำได้:** ภาพนี้คือตำแหน่ง **{ai_result}**")
+                else:
+                    # Pass current dropdown options to AI to ensure exact match
+                    ai_result = analyze_camera_angle(img_data, gemini_api_key, all_pos_opts)
+                    st.info(f"✨ **AI วิเคราะห์ตำแหน่ง:** **{ai_result}**")
+                
+                # --- Teaching/Correction Section ---
+                st.markdown("---")
+                st.write("📍 หาก AI ทายผิด หรือต้องการให้จำค่าใหม่ สามารถเลือกแก้ไขเพื่อสอน AI:")
+                col_t1, col_t2 = st.columns([3, 1])
+                
+                with col_t1:
+                    # Find index of ai_result in dropdown options for default selection
+                    try:
+                        def_idx = all_pos_opts.index(ai_result) if ai_result in all_pos_opts else 0
+                    except:
+                        def_idx = 0
+                    
+                    correct_pos = st.selectbox("เลือกตำแหน่งที่ถูกต้อง", options=all_pos_opts, index=def_idx, key="teach_select")
+                
+                with col_t2:
+                    if st.button("💾 บันทึกการสอน", use_container_width=True):
+                        save_ai_memory(img_hash, correct_pos)
+                        st.success("บันทึกการสอนเรียบร้อย! ต่อไป AI จะจำข้อมูลชุดนี้คูากับภาพนี้")
+                        ai_result = correct_pos
+                
                 # Attempt to match with existing dropdown or use as new
                 st.session_state["ai_suggested_pos"] = ai_result
         st.markdown("</div>", unsafe_allow_html=True)
