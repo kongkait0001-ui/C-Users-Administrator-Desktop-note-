@@ -6,6 +6,7 @@ import os
 import io
 import base64
 import re
+import json
 import google.generativeai as genai
 from PIL import Image
 
@@ -175,52 +176,77 @@ def get_suggested_length(company, vehicle, position):
     conn.close()
     return row[0] if row else 5.0
 
-def analyze_camera_angle(image_bytes, api_key, available_options):
+def analyze_camera_vision(files, api_key, available_options):
+    """
+    Analyzes one or more images (or a grid) and returns a mapping of CH -> position.
+    Checks memory first.
+    """
     try:
+        # Calculate composite hash for memory
+        hashes = sorted([get_image_hash(f.getvalue()) for f in files])
+        composite_hash = hashlib.md5("".join(hashes).encode()).hexdigest()
+        
+        # Check memory
+        remembered_data = get_ai_memory(composite_hash)
+        if remembered_data:
+            try:
+                # Try parsing as JSON for multi-view
+                return json.loads(remembered_data)
+            except:
+                # Fallback to single position if it's old data
+                return {"CH1": remembered_data}
+
+        # If no memory, call AI
         genai.configure(api_key=api_key)
         
-        # Dynamic discovery of vision models
         vision_models = []
         try:
             for m in genai.list_models():
                 if 'generateContent' in m.supported_generation_methods:
                     if 'gemini' in m.name and ('flash' in m.name or 'vision' in m.name):
                         vision_models.append(m.name)
-            if not vision_models: vision_models = ['models/gemini-1.5-flash', 'models/gemini-pro-vision']
-        except: vision_models = ['models/gemini-1.5-flash', 'models/gemini-pro-vision']
+            if not vision_models: vision_models = ['models/gemini-1.5-flash']
+        except: vision_models = ['models/gemini-1.5-flash']
 
-        img_part = { "mime_type": "image/jpeg", "data": image_bytes }
+        content_parts = []
+        for f in files:
+            img_data = f.getvalue()
+            content_parts.append({ "mime_type": "image/jpeg", "data": img_data })
         
-        # Prepare list of options for AI
         opts_str = ", ".join(available_options)
         
         prompt = f"""
         You are an expert CCTV installation technician for TRUCKS and LOGISTICS vehicles.
-        Look at this screenshot and identify the camera's position from this list: [{opts_str}].
+        Identify the camera positions for each view. Use ONLY these options: [{opts_str}].
         
-        VISUAL CLUES TO LOOK FOR:
-        1. Front/Cabin/Driver View: Look for a steering wheel, dashboard, driver's seat, gear stick, or the view looking out the front windshield. If it's a DOME camera inside, it MUST be the Cabin/Driver area.
-        2. Rear View/Tail: Look for the road behind the truck, the back doors of a container, a trailer hitch, or license plates of following cars.
-        3. Side View (Left/Right): Look for the side of the truck body, tires, or looking down the side mirrors.
-        4. Cargo Area: Look for the inside of a container or the back bed of a truck with goods.
-        
-        Your task: Choose the EXACT text from the list that matches best.
-        Return ONLY the text from the list.
+        Return ONLY a JSON object mapping channel names (CH1, CH2...) to positions.
+        If it's a grid, detect labels in the image.
+        Example: {{"CH1": "ส่องหน้าคนขับ", "CH2": "ส่องหลังรถ"}}
         """
+        content_parts.append(prompt)
         
         last_err = ""
         for m_name in vision_models:
             try:
                 model = genai.GenerativeModel(model_name=m_name)
-                response = model.generate_content([prompt, img_part])
-                return response.text.strip()
+                response = model.generate_content(content_parts)
+                text = response.text.strip()
+                if "```json" in text:
+                    text = text.split("```json")[-1].split("```")[0].strip()
+                elif "```" in text:
+                    text = text.split("```")[-1].split("```")[0].strip()
+                
+                result_map = json.loads(text)
+                # Save to memory immediately for future use
+                save_ai_memory(composite_hash, json.dumps(result_map, ensure_ascii=False))
+                return result_map
             except Exception as inner_e:
                 last_err = str(inner_e)
                 continue
         
-        return f"AI Error: {last_err}"
+        return {"error": f"AI Error: {last_err}"}
     except Exception as e:
-        return f"AI Config Error: {str(e)}"
+        return {"error": f"AI Config Error: {str(e)}"}
 
 # --- UI Setup ---
 st.set_page_config(page_title="Abdul", page_icon="abdul_logo_nobg.png", layout="wide")
@@ -357,47 +383,33 @@ if choice == "เพิ่มข้อมูลใหม่":
         if not gemini_api_key:
             st.warning("⚠️ กรุณาใส่ Gemini API Key ที่แถบเมนูข้างเพื่อเปิดใช้ระบบวิเคราะห์ภาพ")
         
-        uploaded_file = st.file_uploader("📸 ลากรูปภาพมุมกล้องมาวางเพื่อวิเคราะห์ตำแหน่ง", type=["jpg", "png", "jpeg"])
+        uploaded_files = st.file_uploader("📸 ลากรูปภาพ (หรือรูปกริด) มาวางเพื่อวิเคราะห์ตำแหน่ง", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
         
-        if uploaded_file and gemini_api_key:
-            with st.spinner("AI กำลังจ้องมองภาพและวิเคราะห์ตำแหน่งติดตั้ง..."):
-                img_data = uploaded_file.getvalue()
-                img_hash = get_image_hash(img_data)
-                
-                # Check memory
-                remembered_pos = get_ai_memory(img_hash)
-                all_pos_opts = get_dropdown_options("position")
-                
-                if remembered_pos:
-                    ai_result = remembered_pos
-                    st.info(f"🧠 **ระบบจำได้:** ภาพนี้คือตำแหน่ง **{ai_result}**")
-                else:
-                    # Pass current dropdown options to AI to ensure exact match
-                    ai_result = analyze_camera_angle(img_data, gemini_api_key, all_pos_opts)
-                    st.info(f"✨ **AI วิเคราะห์ตำแหน่ง:** **{ai_result}**")
-                
-                # --- Teaching/Correction Section ---
-                st.markdown("---")
-                st.write("📍 หาก AI ทายผิด หรือต้องการให้จำค่าใหม่ สามารถเลือกแก้ไขเพื่อสอน AI:")
-                col_t1, col_t2 = st.columns([3, 1])
-                
-                with col_t1:
-                    # Find index of ai_result in dropdown options for default selection
-                    try:
-                        def_idx = all_pos_opts.index(ai_result) if ai_result in all_pos_opts else 0
-                    except:
-                        def_idx = 0
+        if uploaded_files and gemini_api_key:
+            # Display thumbnails
+            st.image(uploaded_files, width=150, caption=[f"ภาพที่ {i+1}" for i in range(len(uploaded_files))])
+            
+            if st.button("🔍 เริ่มวิเคราะห์ภาพทั้งหมดด้วย AI"):
+                with st.spinner("AI กำลังวิเคราะห์ทุกมุมมอง..."):
+                    all_pos_opts = get_dropdown_options("position")
+                    ai_results = analyze_camera_vision(uploaded_files, gemini_api_key, all_pos_opts)
                     
-                    correct_pos = st.selectbox("เลือกตำแหน่งที่ถูกต้อง", options=all_pos_opts, index=def_idx, key="teach_select")
-                
-                with col_t2:
-                    if st.button("💾 บันทึกการสอน", use_container_width=True):
-                        save_ai_memory(img_hash, correct_pos)
-                        st.success("บันทึกการสอนเรียบร้อย! ต่อไป AI จะจำข้อมูลชุดนี้คูากับภาพนี้")
-                        ai_result = correct_pos
-                
-                # Attempt to match with existing dropdown or use as new
-                st.session_state["ai_suggested_pos"] = ai_result
+                    if "error" in ai_results:
+                        st.error(ai_results["error"])
+                    else:
+                        st.session_state["ai_suggestions"] = ai_results
+                        st.success(f"✅ วิเคราะห์เสร็จสิ้น! พบข้อมูลตำแหน่งใน {len(ai_results)} ช่องสัญญาณ")
+                        
+                        # Show result summaries with memory info
+                        cols = st.columns(4)
+                        all_remembered = True
+                        for idx, (ch, pos) in enumerate(ai_results.items()):
+                            with cols[idx % 4]:
+                                st.info(f"**{ch}:** {pos}")
+                        
+                        st.divider()
+                        st.info("💡 **คำแนะนำ:** ตรวจสอบข้อมูลที่ฟอร์มด้านล่าง หาก AI ทายผิด ให้แก้ไขในฟอร์มแล้วกดบันทึกข้อมูลรถ AI จะจำความถูกต้องไว้สำหรับภาพชุดนี้ครับ")
+        st.markdown("</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("<div class='company-card'>", unsafe_allow_html=True)
@@ -443,27 +455,32 @@ if choice == "เพิ่มข้อมูลใหม่":
             for r in range(4):
                 c1, c2, c3, c4 = st.columns([2, 1, 2, 1])
                 
-                # Suggested value from AI for the FIRST channel focused
-                ai_pos = st.session_state.get("ai_suggested_pos", "")
+                ai_suggestions = st.session_state.get("ai_suggestions", {})
                 
                 # CH A
+                ch_a_num = r*2+1
+                ch_a_key = f"CH{ch_a_num}"
+                s_a = ai_suggestions.get(ch_a_key, ai_suggestions.get(str(ch_a_num), ""))
+                idx_a = pos_options.index(s_a) if s_a in pos_options else 0
+                
                 with c1: 
-                    p_a = st.selectbox(f"CH {r*2+1}", options=pos_options, key=f"p_a_{r}")
+                    p_a = st.selectbox(f"CH {ch_a_num}", options=pos_options, index=idx_a, key=f"p_a_{r}")
                 
                 comp_for_len = new_comp.strip() if new_comp.strip() else (selected_comp if selected_comp != "-- เลือกจากรายการ --" else "")
                 veh_for_len = new_veh.strip() if new_veh.strip() else (selected_veh if selected_veh != "-- เลือกจากรายการ --" else "")
                 
-                # Use AI suggestion for the first empty CH
-                if ai_pos and not p_a:
-                    st.toast(f"AI แนะนำตำแหน่ง: {ai_pos}")
-                
                 def_len_a = get_suggested_length(comp_for_len, veh_for_len, p_a) if p_a else 5.0
-                with c2: l_a = st.number_input(f"สาย {r*2+1} (ม.)", min_value=0.0, max_value=50.0, step=0.5, value=def_len_a, key=f"l_a_{r}", label_visibility="collapsed")
+                with c2: l_a = st.number_input(f"สาย {ch_a_num} (ม.)", min_value=0.0, max_value=50.0, step=0.5, value=def_len_a, key=f"l_a_{r}", label_visibility="collapsed")
                 
                 # CH B
-                with c3: p_b = st.selectbox(f"CH {r*2+2}", options=pos_options, key=f"p_b_{r}")
+                ch_b_num = r*2+2
+                ch_b_key = f"CH{ch_b_num}"
+                s_b = ai_suggestions.get(ch_b_key, ai_suggestions.get(str(ch_b_num), ""))
+                idx_b = pos_options.index(s_b) if s_b in pos_options else 0
+                
+                with c3: p_b = st.selectbox(f"CH {ch_b_num}", options=pos_options, index=idx_b, key=f"p_b_{r}")
                 def_len_b = get_suggested_length(comp_for_len, veh_for_len, p_b) if p_b else 5.0
-                with c4: l_b = st.number_input(f"สาย {r*2+2} (ม.)", min_value=0.0, max_value=50.0, step=0.5, value=def_len_b, key=f"l_b_{r}", label_visibility="collapsed")
+                with c4: l_b = st.number_input(f"สาย {ch_b_num} (ม.)", min_value=0.0, max_value=50.0, step=0.5, value=def_len_b, key=f"l_b_{r}", label_visibility="collapsed")
                 
                 if p_a: entries_list.append((p_a, l_a))
                 if p_b: entries_list.append((p_b, l_b))
@@ -478,12 +495,28 @@ if choice == "เพิ่มข้อมูลใหม่":
                         if company_name not in settings_companies: add_dropdown_option("company", company_name)
                         if vehicle_type not in settings_vehicles: add_dropdown_option("vehicle", vehicle_type)
                         
+                        # --- Memory Saving (Teaching) ---
+                        if uploaded_files:
+                            # Save the CURRENT mapped positions for these files as memory
+                            hashes = sorted([get_image_hash(f.getvalue()) for f in uploaded_files])
+                            composite_hash = hashlib.md5("".join(hashes).encode()).hexdigest()
+                            
+                            current_mapping = {}
+                            for i, (p, l) in enumerate(entries_list):
+                                # Reconstruct CH name (rough estimation or from p_a_X keys)
+                                # For simplicity, we just save the list of used positions
+                                current_mapping[f"CH{i+1}"] = p
+                            
+                            save_ai_memory(composite_hash, json.dumps(current_mapping, ensure_ascii=False))
+
                         for p, l in entries_list:
                             add_data(company_name, vehicle_type, p, l, in_plate.strip())
-                        st.success(f"✅ บันทึกข้อมูลของ {company_name} (ทะเบียน: {in_plate}) เรียบร้อย!")
+                        
+                        st.success(f"✅ บันทึกข้อมูลและสอน AI เรียบร้อยแล้ว!")
                         st.balloons()
-                    else:
-                        st.warning("⚠️ กรุณาระบุตำแหน่งอย่างน้อย 1 จุด")
+                        # Reset suggested values
+                        if "ai_suggestions" in st.session_state: del st.session_state["ai_suggestions"]
+                        st.rerun()
                 else:
                     st.error("⚠️ กรุณาระบุชื่อบริษัทและประเภทรถ")
         st.markdown("</div>", unsafe_allow_html=True)
