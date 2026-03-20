@@ -9,6 +9,7 @@ import re
 import json
 import google.generativeai as genai
 from PIL import Image
+from streamlit_paste_button import paste_image_button
 
 # --- Configuration & Database Setup ---
 DB_FILE = "cctv_data.db"
@@ -383,11 +384,47 @@ if choice == "เพิ่มข้อมูลใหม่":
         if not gemini_api_key:
             st.warning("⚠️ กรุณาใส่ Gemini API Key ที่แถบเมนูข้างเพื่อเปิดใช้ระบบวิเคราะห์ภาพ")
         
-        uploaded_files = st.file_uploader("📸 ลากรูปภาพ (หรือรูปกริด) มาวางเพื่อวิเคราะห์ตำแหน่ง", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
-        
-        if uploaded_files and gemini_api_key:
+        # Add paste support initialization
+        if "pasted_images" not in st.session_state:
+            st.session_state.pasted_images = []
+
+        col_up1, col_up2 = st.columns([3, 1])
+        with col_up1:
+            uploaded_files = st.file_uploader("📸 ลากรูปภาพ (หรือรูปกริด) มาวางเพื่อวิเคราะห์ตำแหน่ง", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
+        with col_up2:
+            st.write("") # spacing
+            st.write("") # spacing
+            pasted_img = paste_image_button("📋 วางจากคลิปบอร์ด", key="paste_btn", use_container_width=True)
+            if pasted_img and pasted_img.image_data:
+                # Use hash to avoid duplicates and infinite loops on rerun
+                import hashlib
+                temp_buf = io.BytesIO()
+                pasted_img.image_data.save(temp_buf, format="PNG")
+                img_hash = hashlib.md5(temp_buf.getvalue()).hexdigest()
+                
+                if st.session_state.get("last_pasted_hash") != img_hash:
+                    st.session_state.last_pasted_hash = img_hash
+                    temp_buf.name = f"pasted_image_{len(st.session_state.pasted_images)+1}.png"
+                    st.session_state.pasted_images.append(temp_buf)
+                    st.rerun()
+            
+            if st.session_state.pasted_images:
+                if st.button("🗑️ ล้างภาพที่วาง", key="clear_pasted"):
+                    st.session_state.pasted_images = []
+                    if "last_pasted_hash" in st.session_state:
+                        del st.session_state["last_pasted_hash"]
+                    st.rerun()
+
+        # Combine both sources
+        all_files_to_analyze = []
+        if uploaded_files:
+            all_files_to_analyze.extend(uploaded_files)
+        if st.session_state.pasted_images:
+            all_files_to_analyze.extend(st.session_state.pasted_images)
+
+        if all_files_to_analyze and gemini_api_key:
             # Display thumbnails
-            st.image(uploaded_files, width=150, caption=[f"ภาพที่ {i+1}" for i in range(len(uploaded_files))])
+            st.image(all_files_to_analyze, width=150, caption=[f"ภาพที่ {i+1}" for i in range(len(all_files_to_analyze))])
             
             if st.button("🔍 เริ่มวิเคราะห์ภาพทั้งหมดด้วย AI"):
                 with st.spinner("AI กำลังวิเคราะห์ทุกมุมมอง..."):
@@ -496,9 +533,9 @@ if choice == "เพิ่มข้อมูลใหม่":
                         if vehicle_type not in settings_vehicles: add_dropdown_option("vehicle", vehicle_type)
                         
                         # --- Memory Saving (Teaching) ---
-                        if uploaded_files:
+                        if all_files_to_analyze:
                             # Save the CURRENT mapped positions for these files as memory
-                            hashes = sorted([get_image_hash(f.getvalue()) for f in uploaded_files])
+                            hashes = sorted([get_image_hash(f.getvalue()) for f in all_files_to_analyze])
                             composite_hash = hashlib.md5("".join(hashes).encode()).hexdigest()
                             
                             current_mapping = {}
