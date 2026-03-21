@@ -9,7 +9,13 @@ import re
 import json
 import google.generativeai as genai
 from PIL import Image
-from streamlit_paste_button import paste_image_button
+try:
+    from streamlit_paste_button import paste_image_button
+except Exception:
+    paste_image_button = None
+
+# --- Configuration & UI Setup (Must be first Streamlit command) ---
+st.set_page_config(page_title="Abdul", page_icon="abdul_logo_nobg.png", layout="wide")
 
 # --- Configuration & Database Setup ---
 DB_FILE = "cctv_data.db"
@@ -250,7 +256,7 @@ def analyze_camera_vision(files, api_key, available_options):
         return {"error": f"AI Config Error: {str(e)}"}
 
 # --- UI Setup ---
-st.set_page_config(page_title="Abdul", page_icon="abdul_logo_nobg.png", layout="wide")
+# --- UI Setup removed from here ---
 
 # Custom CSS for premium & mobile-friendly look
 st.markdown("""
@@ -325,6 +331,9 @@ st.markdown("""
 if 'started' not in st.session_state:
     st.session_state.started = False
 
+def start_app():
+    st.session_state.started = True
+
 if not st.session_state.started:
     st.markdown("<br><br>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 2, 1])
@@ -345,16 +354,14 @@ if not st.session_state.started:
         
         btn_c1, btn_c2, btn_c3 = st.columns([1, 2, 1])
         with btn_c2:
-            if st.button("🚀 เข้าสู่ระบบ (Start Program)"):
-                st.session_state.started = True
-                st.rerun()
-    st.stop()
-
-col1, col2 = st.columns([1, 10])
-with col1:
-    st.image("abdul_logo_nobg.png", width=70)
-with col2:
-    st.title("Abdul - AI CCTV System")
+            st.button("🚀 เข้าสู่ระบบ (Start Program)", on_click=start_app, use_container_width=True)
+else:
+    # --- Main Application UI ---
+    col1, col2 = st.columns([1, 10])
+    with col1:
+        st.image("abdul_logo_nobg.png", width=70)
+    with col2:
+        st.title("Abdul - AI CCTV System")
 
 # Sidebar navigation
 st.sidebar.markdown("### 🔑 ตั้งค่า AI")
@@ -394,7 +401,13 @@ if choice == "เพิ่มข้อมูลใหม่":
         with col_up2:
             st.write("") # spacing
             st.write("") # spacing
-            pasted_img = paste_image_button("📋 วางจากคลิปบอร์ด", key="paste_btn", use_container_width=True)
+            
+            if paste_image_button is not None:
+                pasted_img = paste_image_button("📋 วางจากคลิปบอร์ด", key="paste_btn", use_container_width=True)
+            else:
+                st.warning("⚠️ ปุ่มวางภาพไม่พร้อมใช้ (โปรดรอการติดตั้ง)")
+                pasted_img = None
+
             if pasted_img and pasted_img.image_data:
                 # Use hash to avoid duplicates and infinite loops on rerun
                 import hashlib
@@ -429,7 +442,7 @@ if choice == "เพิ่มข้อมูลใหม่":
             if st.button("🔍 เริ่มวิเคราะห์ภาพทั้งหมดด้วย AI"):
                 with st.spinner("AI กำลังวิเคราะห์ทุกมุมมอง..."):
                     all_pos_opts = get_dropdown_options("position")
-                    ai_results = analyze_camera_vision(uploaded_files, gemini_api_key, all_pos_opts)
+                    ai_results = analyze_camera_vision(all_files_to_analyze, gemini_api_key, all_pos_opts)
                     
                     if "error" in ai_results:
                         st.error(ai_results["error"])
