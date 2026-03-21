@@ -17,13 +17,14 @@ DB_FILE = "cctv_data.db"
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
+    # Ensure tables match existing schema
     c.execute('''
         CREATE TABLE IF NOT EXISTS camera_installations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            company_name TEXT,
-            vehicle_type TEXT,
-            installation_position TEXT,
-            cable_length_m REAL,
+            company_name TEXT NOT NULL,
+            vehicle_type TEXT NOT NULL,
+            installation_position TEXT NOT NULL,
+            cable_length_m REAL NOT NULL,
             license_plate TEXT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
@@ -31,9 +32,9 @@ def init_db():
     c.execute('''
         CREATE TABLE IF NOT EXISTS dropdown_options (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            category TEXT,
-            value TEXT,
-            UNIQUE(category, value)
+            category TEXT NOT NULL,
+            option_value TEXT NOT NULL,
+            UNIQUE(category, option_value)
         )
     ''')
     c.execute('''
@@ -53,7 +54,7 @@ def init_db():
             ("position", "ส่องหน้าคนขับ"), ("position", "ส่องห้องโดยสาร"), ("position", "ส่องถนน"),
             ("position", "บนกระจกซ้าย"), ("position", "บนกระจกขวา"), ("position", "ในตู้สินค้า"), ("position", "ส่องหลังรถ")
         ]
-        c.executemany("INSERT OR IGNORE INTO dropdown_options (category, value) VALUES (?, ?)", defaults)
+        c.executemany("INSERT OR IGNORE INTO dropdown_options (category, option_value) VALUES (?, ?)", defaults)
     
     conn.commit()
     conn.close()
@@ -77,24 +78,28 @@ def save_ai_memory(image_hash, mapping):
     conn.close()
 
 def get_dropdown_options(category):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT value FROM dropdown_options WHERE category = ? ORDER BY value", (category,))
-    options = [row[0] for row in c.fetchall()]
-    conn.close()
-    return options
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT option_value FROM dropdown_options WHERE category = ? ORDER BY option_value", (category,))
+        options = [row[0] for row in c.fetchall()]
+        conn.close()
+        return options
+    except Exception as e:
+        # Fallback if table name or columns differ slightly (legacy support)
+        return []
 
 def add_dropdown_option(category, value):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("INSERT OR IGNORE INTO dropdown_options (category, value) VALUES (?, ?)", (category, value))
+    c.execute("INSERT OR IGNORE INTO dropdown_options (category, option_value) VALUES (?, ?)", (category, value))
     conn.commit()
     conn.close()
 
 def delete_dropdown_option(category, value):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("DELETE FROM dropdown_options WHERE category = ? AND value = ?", (category, value))
+    c.execute("DELETE FROM dropdown_options WHERE category = ? AND option_value = ?", (category, value))
     conn.commit()
     conn.close()
 
@@ -180,10 +185,6 @@ def get_suggested_length(company, vehicle, position):
     return row[0] if row else 5.0
 
 def analyze_camera_vision(files, api_key, available_options):
-    """
-    Analyzes one or more images (or a grid) and returns a mapping of CH -> position.
-    Checks memory first.
-    """
     try:
         # Calculate composite hash for memory
         hashes = sorted([get_image_hash(f.getvalue()) for f in files])
@@ -193,10 +194,8 @@ def analyze_camera_vision(files, api_key, available_options):
         remembered_data = get_ai_memory(composite_hash)
         if remembered_data:
             try:
-                # Try parsing as JSON for multi-view
                 return json.loads(remembered_data)
             except:
-                # Fallback to single position if it's old data
                 return {"CH1": remembered_data}
 
         # If no memory, call AI
@@ -240,7 +239,6 @@ def analyze_camera_vision(files, api_key, available_options):
                     text = text.split("```")[-1].split("```")[0].strip()
                 
                 result_map = json.loads(text)
-                # Save to memory immediately for future use
                 save_ai_memory(composite_hash, json.dumps(result_map, ensure_ascii=False))
                 return result_map
             except Exception as inner_e:
@@ -254,73 +252,17 @@ def analyze_camera_vision(files, api_key, available_options):
 # --- UI Setup ---
 st.set_page_config(page_title="Abdul - AI CCTV Data Management", page_icon="📝", layout="wide")
 
-# Custom CSS for premium & mobile-friendly look
+# Custom CSS
 st.markdown("""
     <style>
-    .main {
-        background-color: #f8f9fa;
-    }
-    /* Global button styling */
-    .stButton>button {
-        width: 100%;
-        border-radius: 8px;
-        height: 3.5em;
-        background-color: #007bff;
-        color: white;
-        font-weight: 600;
-        border: none;
-        transition: all 0.3s ease;
-    }
-    .stButton>button:hover {
-        background-color: #0056b3;
-        transform: translateY(-1px);
-    }
-    /* Input fields styling */
-    .stTextInput>div>div>input, .stSelectbox>div>div>div {
-        border-radius: 8px !important;
-    }
-    /* Card-like container for data */
-    .company-card {
-        background-color: white;
-        padding: 15px;
-        border-radius: 10px;
-        border: 1px solid #e2e8f0;
-        margin-bottom: 10px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    /* Responsive Font Sizes & Mobile Tweaks */
-    @media (max-width: 600px) {
-        h1 { font-size: 1.8em !important; }
-        h2 { font-size: 1.5em !important; }
-        h3 { font-size: 1.2em !important; }
-        .stMarkdown p { font-size: 1em !important; }
-        .floating-img { max-width: 200px !important; }
-        /* Make buttons easier to tap on mobile */
-        .stButton>button {
-            height: 4em !important;
-            font-size: 1.1em !important;
-        }
-        /* Reduce padding for sidebars/main on mobile */
-        .block-container {
-            padding-top: 2rem !important;
-            padding-left: 1rem !important;
-            padding-right: 1rem !important;
-        }
-    }
-    /* Animation for logo */
-    @keyframes float {
-        0% { transform: translateY(0px); }
-        50% { transform: translateY(-15px); }
-        100% { transform: translateY(0px); }
-    }
-    .floating-img {
-        animation: float 4s ease-in-out infinite;
-        display: block;
-        margin: 0 auto;
-        max-width: 280px;
-        width: 100%;
-        filter: drop-shadow(0 10px 15px rgba(0,0,0,0.1));
-    }
+    .main { background-color: #f8f9fa; }
+    .stButton>button { width: 100%; border-radius: 8px; height: 3.5em; background-color: #007bff; color: white; font-weight: 600; border: none; transition: all 0.3s ease; }
+    .stButton>button:hover { background-color: #0056b3; transform: translateY(-1px); }
+    .stTextInput>div>div>input, .stSelectbox>div>div>div { border-radius: 8px !important; }
+    .company-card { background-color: white; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    @media (max-width: 600px) { h1 { font-size: 1.8em !important; } .block-container { padding: 1rem !important; } }
+    @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-15px); } 100% { transform: translateY(0px); } }
+    .floating-img { animation: float 4s ease-in-out infinite; display: block; margin: 0 auto; max-width: 250px; width: 100%; filter: drop-shadow(0 10px 15px rgba(0,0,0,0.1)); }
     </style>
     """, unsafe_allow_html=True)
 
@@ -330,7 +272,9 @@ if 'started' not in st.session_state:
 def start_app():
     st.session_state.started = True
 
+# App Content
 if not st.session_state.started:
+    # Landing / Splash Screen
     st.markdown("<br><br>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
@@ -338,22 +282,28 @@ if not st.session_state.started:
         if os.path.exists(logo_path):
             with open(logo_path, "rb") as img_file:
                 b64_string = base64.b64encode(img_file.read()).decode()
-            st.markdown(f'<img src="data:image/png;base64,{b64_string}" class="floating-img" style="max-width: 250px;">', unsafe_allow_html=True)
+            st.markdown(f'<img src="data:image/png;base64,{b64_string}" class="floating-img">', unsafe_allow_html=True)
         else:
-            st.info("⚠️ ไม่พบไฟล์โลโก้ (Logo not found)")
+            st.info("⚠️ ไม่พบไฟล์โลโก้")
             
         st.markdown("<h1 style='text-align: center; color: #1e293b;'>Abdul</h1>", unsafe_allow_html=True)
         st.markdown("<h3 style='text-align: center; color: #475569;'>AI CCTV Data Management System</h3>", unsafe_allow_html=True)
+        st.write("<br>", unsafe_allow_html=True)
+        if st.button("🚀 เข้าสู่โปรแกรม (Start)", key="start_main"):
+            start_app()
+            st.rerun()
+
+else:
+    # Main App UI
     st.sidebar.markdown("### 🔑 ตั้งค่า AI")
     gemini_api_key = st.sidebar.text_input("Gemini API Key", type="password", help="ขอรับ API Key ฟรีได้ที่เว็บ Google AI Studio")
     
-    menu = ["เพิ่มข้อมูลใหม่", "ดูข้อมูลและค้นหา", "ตั้งค่าตัวเลือก Dropdown", "นำเข้าข้อมูลจาก Excel"]
+    menu = ["➕ เพิ่มข้อมูลใหม่", "🔍 ดูข้อมูลและค้นหา", "⚙️ ตัวเลือก Dropdown", "📥 นำเข้าจาก Excel"]
     choice = st.sidebar.selectbox("เมนูการใช้งาน", menu)
     
-    if choice == "เพิ่มข้อมูลใหม่":
+    if choice == "➕ เพิ่มข้อมูลใหม่":
         st.subheader("📝 บันทึกข้อมูลการติดตั้ง")
-        
-        tab1, tab2 = st.tabs(["✨ บันทึกทีละรายการ (แนะนำ)", "📊 บันทึกแบบตาราง (หลายบริษัท)"])
+        tab1, tab2 = st.tabs(["✨ บันทึกทีละรายการ", "📊 บันทึกแบบตาราง"])
         
         df_existing = get_all_data()
         settings_companies = get_dropdown_options("company")
@@ -365,422 +315,186 @@ if not st.session_state.started:
         all_vehicles = sorted(list(set(settings_vehicles + existing_vehicles_data)))
         
         with tab1:
-            # AI Vision Section
             st.markdown("<div class='company-card' style='background: #f0f7ff; border-left: 5px solid #007bff;'>", unsafe_allow_html=True)
-            st.markdown("#### 🦅 ค้นหาตำแหน่งด้วย AI (Vision Assistant)")
-            if not gemini_api_key:
-                st.warning("⚠️ กรุณาใส่ Gemini API Key ที่แถบเมนูข้างเพื่อเปิดใช้ระบบวิเคราะห์ภาพ")
+            st.markdown("#### 🦅 ค้นหาตำแหน่งด้วย AI")
+            if not gemini_api_key: st.warning("⚠️ กรุณาใส่ Gemini API Key")
             
-            # Add paste support initialization
-            if "pasted_images" not in st.session_state:
-                st.session_state.pasted_images = []
+            if "pasted_images" not in st.session_state: st.session_state.pasted_images = []
     
             col_up1, col_up2 = st.columns([3, 1])
-            with col_up1:
-                uploaded_files = st.file_uploader("📸 ลากรูปภาพ (หรือรูปกริด) มาวางเพื่อวิเคราะห์ตำแหน่ง", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
+            with col_up1: uploaded_files = st.file_uploader("📸 ลากรูปภาพมาวาง", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
             with col_up2:
-                st.write("") # spacing
-                st.write("") # spacing
-                
+                st.write("<br>", unsafe_allow_html=True)
                 pasted_img = paste_image_button("📋 วางจากคลิปบอร์ด", key="paste_btn", use_container_width=True)
-    
                 if pasted_img and pasted_img.image_data:
-                    # Use hash to avoid duplicates and infinite loops on rerun
-                    import hashlib
                     temp_buf = io.BytesIO()
                     pasted_img.image_data.save(temp_buf, format="PNG")
                     img_hash = hashlib.md5(temp_buf.getvalue()).hexdigest()
-                    
                     if st.session_state.get("last_pasted_hash") != img_hash:
                         st.session_state.last_pasted_hash = img_hash
-                        temp_buf.name = f"pasted_image_{len(st.session_state.pasted_images)+1}.png"
+                        temp_buf.name = f"pasted_image_{len(st.session_state.pasted_images)}.png"
                         st.session_state.pasted_images.append(temp_buf)
                         st.rerun()
-                
                 if st.session_state.pasted_images:
-                    if st.button("🗑️ ล้างรูปภาพที่วาง", key="clear_pasted"):
+                    if st.button("🗑️ ล้างภาพที่วาง"):
                         st.session_state.pasted_images = []
-                        if "last_pasted_hash" in st.session_state:
-                            del st.session_state["last_pasted_hash"]
                         st.rerun()
-    
-            # Combine both sources
-            all_files_to_analyze = []
-            if uploaded_files:
-                all_files_to_analyze.extend(uploaded_files)
-            if st.session_state.pasted_images:
-                all_files_to_analyze.extend(st.session_state.pasted_images)
-    
-            if all_files_to_analyze and gemini_api_key:
-                # Display thumbnails
-                st.image(all_files_to_analyze, width=150, caption=[f"ภาพที่ {i+1}" for i in range(len(all_files_to_analyze))])
-                
-                if st.button("🔍 เริ่มวิเคราะห์ภาพทั้งหมดด้วย AI"):
-                    with st.spinner("AI กำลังวิเคราะห์ทุกมุมมอง..."):
-                        all_pos_opts = get_dropdown_options("position")
-                        ai_results = analyze_camera_vision(all_files_to_analyze, gemini_api_key, all_pos_opts)
-                        
-                        if "error" in ai_results:
-                            st.error(ai_results["error"])
+            
+            all_to_analyze = (uploaded_files if uploaded_files else []) + st.session_state.pasted_images
+            if all_to_analyze and gemini_api_key:
+                st.image(all_to_analyze, width=150)
+                if st.button("🔍 เริ่มวิเคราะห์ด้วย AI"):
+                    with st.spinner("AI กำลังทำงาน..."):
+                        ai_results = analyze_camera_vision(all_to_analyze, gemini_api_key, get_dropdown_options("position"))
+                        if "error" in ai_results: st.error(ai_results["error"])
                         else:
                             st.session_state["ai_suggestions"] = ai_results
-                            st.success(f"✅ วิเคราะห์เสร็จสิ้น! พบข้อมูลตำแหน่งใน {len(ai_results)} ช่องสัญญาณ")
-                            
-                            # Show result summaries with memory info
+                            st.success("✅ วิเคราะห์เสร็จสิ้น!")
                             cols = st.columns(4)
-                            all_remembered = True
-                            for idx, (ch, pos) in enumerate(ai_results.items()):
-                                with cols[idx % 4]:
-                                    st.info(f"**{ch}:** {pos}")
-                            
-                            st.divider()
-                            st.info("💡 **คำแนะนำ:** ตรวจสอบข้อมูลที่ฟอร์มด้านล่าง หาก AI ทายผิด ให้แก้ไขในฟอร์มแล้วกดบันทึกข้อมูลรถ AI จะจำความถูกต้องไว้สำหรับภาพชุดนี้ครับ")
-            st.markdown("</div>", unsafe_allow_html=True)
+                            for i, (ch, pos) in enumerate(ai_results.items()): cols[i%4].info(f"**{ch}:** {pos}")
             st.markdown("</div>", unsafe_allow_html=True)
     
-            st.markdown("<div class='company-card'>", unsafe_allow_html=True)
-            with st.form("add_form_final", clear_on_submit=False): # Don't clear to keep company name
-                col1, col2 = st.columns(2)
-                with col1:
+            with st.form("add_form_final"):
+                c1, c2 = st.columns(2)
+                with c1:
                     selected_comp = st.selectbox("🏢 เลือกบริษัท", options=["-- เลือกจากรายการ --"] + all_companies)
-                    new_comp = st.text_input("➕ หรือพิมพ์ชื่อบริษัทใหม่")
-                    in_plate = st.text_input("🔢 ป้ายทะเบียนรถ", placeholder="เช่น 70-1234 หรือ 1กข-5555")
-                with col2:
-                    # Prediction + Memory logic
-                    prediction = predict_vehicle_type(in_plate)
-                    history_veh = get_last_veh_by_plate(in_plate)
+                    new_comp = st.text_input("➕ หรือพิมพ์บริษัทใหม่")
+                    in_plate = st.text_input("🔢 ป้ายทะเบียนรถ", placeholder="70-1234")
+                with c2:
+                    pred = predict_vehicle_type(in_plate)
+                    hist = get_last_veh_by_plate(in_plate)
+                    if hist: st.success(f"📌 ความจำระบบ: {hist}")
+                    elif pred: st.info(f"💡 AI แนะนำ: {pred}")
                     
-                    if history_veh:
-                        st.success(f"📌 ความจำระบบ: ทะเบียนนี้คือ **{history_veh}**")
-                        if st.button(f"✨ ใช้ {history_veh}"):
-                            st.session_state["suggested_veh"] = history_veh
-                    elif prediction:
-                        st.info(f"💡 คำแนะนำ: ระบบวิเคราะห์ว่าเป็น **{prediction}**")
-                    
-                    # Use value from session state if suggested
-                    val_veh = st.session_state.get("suggested_veh", "")
-                    
-                    settings_veh = get_dropdown_options("vehicle")
-                    existing_v = sorted(df_existing['vehicle_type'].unique().tolist()) if not df_existing.empty else []
-                    all_v_opts = sorted(list(set(settings_veh + existing_v)))
-                    
+                    all_v_opts = sorted(list(set(settings_vehicles + existing_vehicles_data)))
                     selected_veh = st.selectbox("🚚 เลือกประเภทรถ", options=["-- เลือกจากรายการ --"] + all_v_opts)
-                    new_veh = st.text_input("➕ หรือพิมพ์ประเภทรถใหม่ (ถ้าไม่มีในรายการ)", value=val_veh)
-                    
-                    # Reset suggestion after use (optional, but keep it simple)
-                    if val_veh: 
-                        st.session_state["suggested_veh"] = "" # Clear for next entry
-                    
-                st.divider()
-                st.markdown("**📸 ระบุตำแหน่งติดตั้ง (CH1 - CH8)**")
+                    new_veh = st.text_input("➕ หรือพิมพ์รถใหม่", value=hist if hist else (pred if pred else ""))
                 
-                pos_options = [""] + get_dropdown_options("position")
-                len_options = [float(i) for i in range(1, 21)]
-                
-                entries_list = []
+                st.markdown("**📸 ตำแหน่งติดตั้ง**")
+                pos_opts = [""] + get_dropdown_options("position")
+                entries = []
                 for r in range(4):
-                    c1, c2, c3, c4 = st.columns([2, 1, 2, 1])
-                    
-                    ai_suggestions = st.session_state.get("ai_suggestions", {})
-                    
-                    # CH A
-                    ch_a_num = r*2+1
-                    ch_a_key = f"CH{ch_a_num}"
-                    s_a = ai_suggestions.get(ch_a_key, ai_suggestions.get(str(ch_a_num), ""))
-                    idx_a = pos_options.index(s_a) if s_a in pos_options else 0
-                    
-                    with c1: 
-                        p_a = st.selectbox(f"CH {ch_a_num}", options=pos_options, index=idx_a, key=f"p_a_{r}")
-                    
-                    comp_for_len = new_comp.strip() if new_comp.strip() else (selected_comp if selected_comp != "-- เลือกจากรายการ --" else "")
-                    veh_for_len = new_veh.strip() if new_veh.strip() else (selected_veh if selected_veh != "-- เลือกจากรายการ --" else "")
-                    
-                    def_len_a = get_suggested_length(comp_for_len, veh_for_len, p_a) if p_a else 5.0
-                    with c2: l_a = st.number_input(f"สาย {ch_a_num} (ม.)", min_value=0.0, max_value=50.0, step=0.5, value=def_len_a, key=f"l_a_{r}", label_visibility="collapsed")
-                    
-                    # CH B
-                    ch_b_num = r*2+2
-                    ch_b_key = f"CH{ch_b_num}"
-                    s_b = ai_suggestions.get(ch_b_key, ai_suggestions.get(str(ch_b_num), ""))
-                    idx_b = pos_options.index(s_b) if s_b in pos_options else 0
-                    
-                    with c3: p_b = st.selectbox(f"CH {ch_b_num}", options=pos_options, index=idx_b, key=f"p_b_{r}")
-                    def_len_b = get_suggested_length(comp_for_len, veh_for_len, p_b) if p_b else 5.0
-                    with c4: l_b = st.number_input(f"สาย {ch_b_num} (ม.)", min_value=0.0, max_value=50.0, step=0.5, value=def_len_b, key=f"l_b_{r}", label_visibility="collapsed")
-                    
-                    if p_a: entries_list.append((p_a, l_a))
-                    if p_b: entries_list.append((p_b, l_b))
+                    cols = st.columns([2, 1, 2, 1])
+                    ai_s = st.session_state.get("ai_suggestions", {})
+                    for i in range(2):
+                        ch_num = r*2+i+1
+                        ch_key = f"CH{ch_num}"
+                        sug = ai_s.get(ch_key, "")
+                        idx = pos_opts.index(sug) if sug in pos_opts else 0
+                        with cols[i*2]: p = st.selectbox(f"CH {ch_num}", pos_opts, index=idx, key=f"p_{r}_{i}")
+                        def_l = get_suggested_length(new_comp if new_comp else selected_comp, new_veh if new_veh else selected_veh, p) if p else 5.0
+                        with cols[i*2+1]: l = st.number_input(f"ม. {ch_num}", 0.0, 50.0, def_l, step=0.5, key=f"l_{r}_{i}", label_visibility="collapsed")
+                        if p: entries.append((p, l))
                 
-                if st.form_submit_button("💾 บันทึกข้อมูลรถคันนี้", use_container_width=True):
-                    company_name = new_comp.strip() if new_comp.strip() else (selected_comp if selected_comp != "-- เลือกจากรายการ --" else "")
-                    vehicle_type = new_veh.strip() if new_veh.strip() else (selected_veh if selected_veh != "-- เลือกจากรายการ --" else "")
-                    
-                    if company_name and vehicle_type:
-                        if entries_list:
-                            # Auto-add to dropdowns if new
-                            if company_name not in settings_companies: add_dropdown_option("company", company_name)
-                            if vehicle_type not in settings_vehicles: add_dropdown_option("vehicle", vehicle_type)
-                            
-                            # --- Memory Saving (Teaching) ---
-                            if all_files_to_analyze:
-                                # Save the CURRENT mapped positions for these files as memory
-                                hashes = sorted([get_image_hash(f.getvalue()) for f in all_files_to_analyze])
-                                composite_hash = hashlib.md5("".join(hashes).encode()).hexdigest()
-                                
-                                current_mapping = {}
-                                for i, (p, l) in enumerate(entries_list):
-                                    # Reconstruct CH name (rough estimation or from p_a_X keys)
-                                    # For simplicity, we just save the list of used positions
-                                    current_mapping[f"CH{i+1}"] = p
-                                
-                                save_ai_memory(composite_hash, json.dumps(current_mapping, ensure_ascii=False))
-    
-                            for p, l in entries_list:
-                                add_data(company_name, vehicle_type, p, l, in_plate.strip())
-                            
-                            st.success(f"✅ บันทึกข้อมูลและสอน AI เรียบร้อยแล้ว!")
-                            st.balloons()
-                            # Reset suggested values
-                            if "ai_suggestions" in st.session_state: del st.session_state["ai_suggestions"]
-                            st.rerun()
-                    else:
-                        st.error("⚠️ กรุณาระบุชื่อบริษัทและประเภทรถ")
-            st.markdown("</div>", unsafe_allow_html=True)
-    
+                if st.form_submit_button("💾 บันทึกข้อมูล"):
+                    comp_name = new_comp.strip() if new_comp.strip() else (selected_comp if selected_comp != "-- เลือกจากรายการ --" else "")
+                    veh_name = new_veh.strip() if new_veh.strip() else (selected_veh if selected_veh != "-- เลือกจากรายการ --" else "")
+                    if comp_name and veh_name and entries:
+                        if comp_name not in settings_companies: add_dropdown_option("company", comp_name)
+                        if veh_name not in settings_vehicles: add_dropdown_option("vehicle", veh_name)
+                        for p, l in entries: add_data(comp_name, veh_name, p, l, in_plate.strip())
+                        st.success("✅ บันทึกสำเร็จ!")
+                        if "ai_suggestions" in st.session_state: del st.session_state["ai_suggestions"]
+                        st.rerun()
+                    else: st.error("⚠️ กรุณากรอกข้อมูลให้ครบ")
+
         with tab2:
-            st.markdown("### 📋 กรอกแบบตาราง Excel")
-            st.info("ใช้สำหรับกรอกข้อมูลทีละหลายบริษัทพร้อมกัน")
-            
-            if 'batch_df_v3' not in st.session_state:
-                st.session_state.batch_df_v3 = pd.DataFrame([
-                    {"บริษัท": "", "ประเภทรถ": "", "ตำแหน่ง": "", "สาย (ม.)": 0.0} for _ in range(10)
-                ])
-                
-            edited_df = st.data_editor(
-                st.session_state.batch_df_v3,
-                num_rows="dynamic",
-                use_container_width=True,
-                column_config={
-                    "บริษัท": st.column_config.TextColumn("🏢 บริษัท", required=True),
-                    "ประเภทรถ": st.column_config.TextColumn("🚚 รถ", required=True),
-                    "ตำแหน่ง": st.column_config.SelectboxColumn("📸 ตำแหน่ง", options=get_dropdown_options("position")),
-                    "สาย (ม.)": st.column_config.NumberColumn("📏 สาย", min_value=0, max_value=50, step=0.5)
-                },
-                key="batch_editor_v3"
-            )
-            
-            if st.button("🚀 บันทึกทั้งหมดจากตาราง", type="primary"):
-                valid_rows = edited_df[edited_df["บริษัท"].str.strip() != ""]
-                if not valid_rows.empty:
-                    count = 0
-                    for _, row in valid_rows.iterrows():
-                        c, v, p, l = row["บริษัท"].strip(), row["ประเภทรถ"].strip(), row["ตำแหน่ง"].strip(), float(row["สาย (ม.)"])
-                        if c and v and p:
-                            add_data(c, v, p, l)
-                            count += 1
-                    st.success(f"บันทึกสำเร็จ {count} รายการ")
-                    st.rerun()
-    
-    elif choice == "ดูข้อมูลและค้นหา":
-        st.subheader("🔍 ตรวจสอบข้อมูลแยกตามบริษัท")
-        
+            st.markdown("### 📋 ตารางบันทึกแบบหลายรายการ")
+            if 'batch_df' not in st.session_state:
+                st.session_state.batch_df = pd.DataFrame([{"บริษัท": "", "ประเภทรถ": "", "ตำแหน่ง": "", "สาย (ม.)": 0.0} for _ in range(10)])
+            edited_df = st.data_editor(st.session_state.batch_df, num_rows="dynamic")
+            if st.button("🚀 บันทึกทั้งหมด"):
+                v_rows = edited_df[edited_df["บริษัท"].str.strip() != ""]
+                for _, row in v_rows.iterrows():
+                    if row["บริษัท"] and row["ประเภทรถ"] and row["ตำแหน่ง"]: add_data(row["บริษัท"], row["ประเภทรถ"], row["ตำแหน่ง"], float(row["สาย (ม.)"]))
+                st.success("✅ บันทึกสำเร็จ!")
+                st.rerun()
+
+    elif choice == "🔍 ดูข้อมูลและค้นหา":
+        st.subheader("🔍 ตรวจสอบข้อมูล")
         df = get_all_data()
-        if df.empty:
-            st.info("ยังไม่มีข้อมูลในระบบ")
+        if df.empty: st.info("ยังไม่มีข้อมูล")
         else:
-            # Search and Hierarchy logic
             all_comps = sorted(df['company_name'].unique().tolist())
-            search = st.selectbox("🔎 ค้นหาชื่อบริษัท", ["-- ทั้งหมด --"] + all_comps)
             
-            display_comps = all_comps if search == "-- ทั้งหมด --" else [search]
+            # --- Smart Selection View ---
+            st.markdown("##### 🏢 เลือกบริษัทเพื่อดูรายละเอียด")
+            comp_summary = df.groupby('company_name').size().reset_index(name='จำนวนรายการ')
+            # Selectable Table
+            selected_rows = st.dataframe(comp_summary, use_container_width=True, on_select="rerun", selection_mode="single_row")
             
-            for comp in display_comps:
-                with st.expander(f"🏢 {comp}", expanded=(len(display_comps) == 1)):
-                    comp_df = df[df['company_name'] == comp]
+            # Use selection or fallback to selectbox
+            sel_comp = None
+            if selected_rows and selected_rows.get('selection', {}).get('rows'):
+                sel_idx = selected_rows['selection']['rows'][0]
+                sel_comp = comp_summary.iloc[sel_idx]['company_name']
+                st.info(f"กำลังดูข้อมูล: **{sel_comp}**")
+            
+            search = st.selectbox("หรือค้นหาจากรายชื่อ:", ["-- ทั้งหมด --"] + all_comps, index=(all_comps.index(sel_comp)+1) if sel_comp in all_comps else 0)
+            target_comps = all_comps if search == "-- ทั้งหมด --" else [search]
+            
+            for comp in target_comps:
+                with st.expander(f"🏢 {comp}", expanded=(len(target_comps) == 1)):
+                    sub_df = df[df['company_name'] == comp]
+                    if st.button(f"🗑️ ลบข้อมูลทั้งหมดของ {comp}", key=f"del_{comp}"):
+                        delete_company_data(comp)
+                        st.rerun()
                     
-                    # Delete Company Button
-                    c_head1, c_head2 = st.columns([5, 1])
-                    with c_head2:
-                        if st.button("🗑️ ลบทั้งบริษัท", key=f"del_comp_{comp}"):
-                            delete_company_data(comp)
+                    v_types = sorted(sub_df['vehicle_type'].unique().tolist())
+                    for v_type in v_types:
+                        vt_df = sub_df[sub_df['vehicle_type'] == v_type]
+                        st.markdown(f"<div class='company-card'><b>🚚 {v_type}</b> ({len(vt_df)} รายการ)", unsafe_allow_html=True)
+                        st.table(vt_df[['installation_position', 'cable_length_m', 'license_plate']].rename(columns={'installation_position':'ตำแหน่ง', 'cable_length_m':'สาย (ม.)', 'license_plate':'ทะเบียน'}))
+                        if st.button(f"🗑️ ลบ {v_type}", key=f"del_{comp}_{v_type}"):
+                            delete_vehicle_data(comp, v_type)
                             st.rerun()
-                    
-                    # Show Vehicle Cards
-                    v_types = sorted(comp_df['vehicle_type'].unique().tolist())
-                    for i in range(0, len(v_types), 2):
-                        v_cols = st.columns(2)
-                        for j in range(2):
-                            if i+j < len(v_types):
-                                vt = v_types[i+j]
-                                vt_df = comp_df[comp_df['vehicle_type'] == vt]
-                                with v_cols[j]:
-                                    st.markdown(f"<div class='company-card'><h4>🚚 {vt}</h4><p>กล้อง {len(vt_df)} ตัว</p>", unsafe_allow_html=True)
-                                    vt_table = vt_df[['installation_position', 'cable_length_m']].rename(columns={'installation_position':'ตำแหน่ง', 'cable_length_m':'สาย (ม.)'})
-                                    st.table(vt_table)
-                                    if st.button(f"🗑️ ลบ {vt}", key=f"del_vt_{comp}_{vt}"):
-                                        delete_vehicle_data(comp, vt)
-                                        st.rerun()
-                                    st.markdown("</div>", unsafe_allow_html=True)
-                    
-                    # Quick add for this company
-                    with st.popover(f"➕ เพิ่มรถใหม่ให้ {comp}"):
-                        with st.form(f"quick_add_{comp}"):
-                            qv = st.text_input("ประเภทรถ")
-                            qp_opts = [""] + get_dropdown_options("position")
-                            q_entries = []
-                            for r in range(4):
-                                qc1, qc2, qc3, qc4 = st.columns([2, 1, 2, 1])
-                                with qc1: p1 = st.selectbox(f"CH {r*2+1}", options=qp_opts, key=f"q1_{comp}_{r}")
-                                q_len1 = get_suggested_length(comp, qv, p1) if p1 else 5.0
-                                with qc2: l1 = st.number_input(f"ม. {r*2+1}", 0.0, 50.0, value=q_len1, key=f"ql1_{comp}_{r}", label_visibility="collapsed")
-                                with qc3: p2 = st.selectbox(f"CH {r*2+2}", options=qp_opts, key=f"q2_{comp}_{r}")
-                                q_len2 = get_suggested_length(comp, qv, p2) if p2 else 5.0
-                                with qc4: l2 = st.number_input(f"ม. {r*2+2}", 0.0, 50.0, value=q_len2, key=f"ql2_{comp}_{r}", label_visibility="collapsed")
-                                if p1: q_entries.append((p1, l1))
-                                if p2: q_entries.append((p2, l2))
-                            if st.form_submit_button("บันทึก"):
-                                if qv and q_entries:
-                                    for p, l in q_entries: add_data(comp, qv, p, l)
-                                    st.success("เพิ่มข้อมูลสำเร็จ!")
-                                    st.rerun()
-                                else: st.error("กรุณาระบุข้อมูลให้ครบ")
-    elif choice == "ตั้งค่าตัวเลือก Dropdown":
-        st.subheader("⚙️ จัดการรายการตัวเลือก Dropdown")
+                        st.markdown("</div>", unsafe_allow_html=True)
+
+    elif choice == "⚙️ ตัวเลือก Dropdown":
+        st.subheader("⚙️ จัดการตัวเลือก")
+        cols = st.columns(3)
+        cats = [("company", "🏢 บริษัท"), ("vehicle", "🚚 รถ"), ("position", "📸 ตำแหน่ง")]
+        for i, (cat, name) in enumerate(cats):
+            with cols[i]:
+                st.markdown(f"### {name}")
+                opts = get_dropdown_options(cat)
+                with st.form(f"add_{cat}"):
+                    nv = st.text_input("เพิ่มใหม่")
+                    if st.form_submit_button("➕ เพิ่ม"):
+                        if nv: add_dropdown_option(cat, nv); st.rerun()
+                for o in opts:
+                    c_1, c_2 = st.columns([4, 1])
+                    c_1.write(o)
+                    if c_2.button("❌", key=f"d_{cat}_{o}"): delete_dropdown_option(cat, o); st.rerun()
+
+    elif choice == "📥 นำเข้าจาก Excel":
+        st.subheader("📥 นำเข้าข้อมูล Excel")
+        st.markdown("**คอลัมน์ที่ต้องการ:** `ชื่อบริษัท`, `ประเภทรถ`, `ตำแหน่งติดตั้ง`, `ความยาวสาย (เมตร)`")
+        t_df = pd.DataFrame(columns=['ชื่อบริษัท', 'ประเภทรถ', 'ตำแหน่งติดตั้ง', 'ความยาวสาย (เมตร)'])
+        out = io.BytesIO()
+        with pd.ExcelWriter(out, engine='openpyxl') as w: t_df.to_excel(w, index=False)
+        st.download_button("📄 ดาวน์โหลด Template", out.getvalue(), "template.xlsx")
         
-        col_c, col_v, col_p = st.columns(3)
-        
-        with col_c:
-            st.markdown("### 🏢 ชื่อบริษัท")
-            comp_opts = get_dropdown_options("company")
-            
-            with st.form("add_comp_opt", clear_on_submit=True):
-                new_c = st.text_input("เพิ่มชื่อบริษัทใหม่")
-                if st.form_submit_button("เพิ่มบริษัท"):
-                    if new_c.strip():
-                        add_dropdown_option("company", new_c.strip())
-                        st.rerun()
-            
-            for c in comp_opts:
-                c1, c2 = st.columns([4, 1])
-                c1.write(c)
-                if c2.button("❌", key=f"del_c_{c}", help=f"ลบ {c}"):
-                    delete_dropdown_option("company", c)
-                    st.rerun()
-    
-        with col_v:
-            st.markdown("### 🚚 ประเภทรถ")
-            veh_opts = get_dropdown_options("vehicle")
-            
-            with st.form("add_veh_opt", clear_on_submit=True):
-                new_v = st.text_input("เพิ่มประเภทรถใหม่")
-                if st.form_submit_button("เพิ่มประเภทรถ"):
-                    if new_v.strip():
-                        add_dropdown_option("vehicle", new_v.strip())
-                        st.rerun()
-            
-            for v in veh_opts:
-                c1, c2 = st.columns([4, 1])
-                c1.write(v)
-                if c2.button("❌", key=f"del_v_{v}", help=f"ลบ {v}"):
-                    delete_dropdown_option("vehicle", v)
-                    st.rerun()
-                    
-        with col_p:
-            st.markdown("### 📸 ตำแหน่งติดตั้ง")
-            pos_opts = get_dropdown_options("position")
-            
-            with st.form("add_pos_opt", clear_on_submit=True):
-                new_p = st.text_input("เพิ่มตำแหน่งติดตั้งใหม่")
-                if st.form_submit_button("เพิ่มตำแหน่ง"):
-                    if new_p.strip():
-                        add_dropdown_option("position", new_p.strip())
-                        st.rerun()
-                        
-            for p in pos_opts:
-                c1, c2 = st.columns([4, 1])
-                c1.write(p)
-                if c2.button("❌", key=f"del_p_{p}", help=f"ลบ {p}"):
-                    delete_dropdown_option("position", p)
-                    st.rerun()
-    
-    elif choice == "นำเข้าข้อมูลจาก Excel":
-        st.subheader("📥 นำเข้าข้อมูลจากไฟล์ Excel")
-        st.markdown("""
-        **คำแนะนำ:** ไฟล์ Excel สามารถมีคอลัมน์ใดก็ได้จากรายการต่อไปนี้ (มีอย่างน้อย 1 อย่างก็เพิ่มได้):
-        `ชื่อบริษัท`, `ประเภทรถ`, `ตำแหน่งติดตั้ง`, `ความยาวสาย (เมตร)`
-        """)
-        
-        # --- Generate Template Excel on the fly ---
-        template_df = pd.DataFrame(columns=['ชื่อบริษัท', 'ประเภทรถ', 'ตำแหน่งติดตั้ง', 'ความยาวสาย (เมตร)'])
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            template_df.to_excel(writer, index=False, sheet_name='Template')
-        excel_data = output.getvalue()
-        
-        st.download_button(
-            label="📄 ดาวน์โหลดไฟล์ Excel สำหรับกรอกข้อมูล (Template)",
-            data=excel_data,
-            file_name="cctv_template.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            help="ดาวน์โหลดไฟล์ Excel ต้นแบบไปกรอกข้อมูลเพื่อนำเข้าสู่ระบบ"
-        )
-        st.markdown("---")
-        
-        uploaded_file = st.file_uploader("เลือกไฟล์ Excel (.xlsx)", type=["xlsx"])
-        
-        if uploaded_file is not None:
-            try:
-                # Read Excel
-                df_excel = pd.read_excel(uploaded_file)
-                st.write("ตัวอย่างข้อมูลจากไฟล์:")
-                st.dataframe(df_excel.head(), use_container_width=True)
-                
-                # Mapping columns (allowing for minor variations in naming)
-                col_map = {
-                    'ชื่อบริษัท': 'company_name',
-                    'ทะเบียนรถ': 'license_plate',
-                    'ประเภทรถ': 'vehicle_type',
-                    'ตำแหน่งติดตั้ง': 'installation_position',
-                    'ความยาวสาย (เมตร)': 'cable_length_m'
-                }
-                
-                # Find matching columns
-                available_cols = {thai: db for thai, db in col_map.items() if thai in df_excel.columns}
-                
-                if available_cols:
-                    if st.button("ยืนยันการนำเข้าข้อมูล"):
-                        conn = sqlite3.connect(DB_FILE)
-                        
-                        # Create temporary dataframe for matching columns
-                        imported_df = pd.DataFrame()
-                        for thai_name, db_col in available_cols.items():
-                            imported_df[db_col] = df_excel[thai_name]
-                        
-                        # Add missing columns with default values
-                        if 'company_name' not in imported_df.columns: imported_df['company_name'] = "-"
-                        if 'vehicle_type' not in imported_df.columns: imported_df['vehicle_type'] = "-"
-                        if 'installation_position' not in imported_df.columns: imported_df['installation_position'] = "-"
-                        if 'cable_length_m' not in imported_df.columns: imported_df['cable_length_m'] = 0.0
-                        
-                        # Fill NaN values in existing data
-                        imported_df['company_name'] = imported_df['company_name'].fillna("-")
-                        imported_df['vehicle_type'] = imported_df['vehicle_type'].fillna("-")
-                        imported_df['installation_position'] = imported_df['installation_position'].fillna("-")
-                        imported_df['cable_length_m'] = imported_df['cable_length_m'].fillna(0.0)
-                        
-                        # Reorder columns to match DB
-                        imported_df = imported_df[['company_name', 'vehicle_type', 'installation_position', 'cable_length_m']]
-                        
-                        # Save to DB
-                        imported_df.to_sql('camera_installations', conn, if_exists='append', index=False)
-                        conn.close()
-                        st.success(f"✅ นำเข้าข้อมูล {len(imported_df)} รายการเรียบร้อยแล้ว!")
-                else:
-                    st.error(f"⚠️ ไม่พบคอลัมน์ที่รองรับ")
-                    st.info(f"กรุณาตั้งชื่อหัวตารางใน Excel อย่างน้อย 1 อย่างจาก: {', '.join(col_map.keys())}")
-                    
-            except Exception as e:
-                st.error(f"❌ เกิดข้อผิดพลาด: {e}")
-    
-    # Footer
+        up = st.file_uploader("เลือกไฟล์ .xlsx", type=["xlsx"])
+        if up:
+            df_up = pd.read_excel(up)
+            st.dataframe(df_up.head())
+            m = {'ชื่อบริษัท':'company_name', 'ประเภทรถ':'vehicle_type', 'ตำแหน่งติดตั้ง':'installation_position', 'ความยาวสาย (เมตร)':'cable_length_m'}
+            avail = {k: v for k, v in m.items() if k in df_up.columns}
+            if avail and st.button("✅ ยืนยันการนำเข้า"):
+                conn = sqlite3.connect(DB_FILE)
+                final_up = pd.DataFrame()
+                for k, v in avail.items(): final_up[v] = df_up[k]
+                for c in ['company_name', 'vehicle_type', 'installation_position']:
+                    if c not in final_up.columns: final_up[c] = "-"
+                    final_up[c] = final_up[c].fillna("-")
+                if 'cable_length_m' not in final_up.columns: final_up['cable_length_m'] = 0.0
+                final_up['cable_length_m'] = final_up['cable_length_m'].fillna(0.0)
+                final_up[['company_name', 'vehicle_type', 'installation_position', 'cable_length_m']].to_sql('camera_installations', conn, if_exists='append', index=False)
+                conn.close()
+                st.success("✅ นำเข้าเสร็จสิ้น!")
+
     st.sidebar.markdown("---")
+    if st.sidebar.button("🚪 ออกจากโปรแกรม (Reset)"):
+        st.session_state.started = False
+        st.rerun()
