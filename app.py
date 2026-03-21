@@ -9,12 +9,7 @@ import re
 import json
 import google.generativeai as genai
 from PIL import Image
-try:
-    from streamlit_paste_button import paste_image_button
-    paste_btn_err = None
-except Exception as e:
-    paste_image_button = None
-    paste_btn_err = str(e)
+from streamlit_paste_button import paste_image_button
 
 # --- Configuration & UI Setup (Must be first Streamlit command) ---
 st.set_page_config(page_title="Abdul", page_icon="abdul_logo_nobg.png", layout="wide")
@@ -404,11 +399,7 @@ if choice == "เพิ่มข้อมูลใหม่":
             st.write("") # spacing
             st.write("") # spacing
             
-            if paste_image_button is not None:
-                pasted_img = paste_image_button("📋 วางจากคลิปบอร์ด", key="paste_btn", use_container_width=True)
-            else:
-                st.warning(f"⚠️ ปุ่มวางภาพไม่พร้อมใช้ (โปรดรอการติดตั้ง): {paste_btn_err}")
-                pasted_img = None
+            pasted_img = paste_image_button("📋 วางจากคลิปบอร์ด", key="paste_btn", use_container_width=True)
 
             if pasted_img and pasted_img.image_data:
                 # Use hash to avoid duplicates and infinite loops on rerun
