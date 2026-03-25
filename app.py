@@ -421,7 +421,7 @@ else:
             st.markdown("##### 🏢 เลือกบริษัทเพื่อดูรายละเอียด")
             comp_summary = df.groupby('company_name').size().reset_index(name='จำนวนรายการ')
             # Selectable Table
-            selected_rows = st.dataframe(comp_summary, use_container_width=True, on_select="rerun", selection_mode="single_row")
+            selected_rows = st.dataframe(comp_summary, use_container_width=True, on_select="rerun", selection_mode="single-row")
             
             # Use selection or fallback to selectbox
             sel_comp = None
