@@ -447,6 +447,14 @@ else:
         df = get_all_data()
         if df.empty: st.info("ยังไม่มีข้อมูล")
         else:
+            # --- License Plate Search ---
+            search_plate = st.text_input("🔍 ค้นหาเลขทะเบียน", placeholder="พิมพ์ทะเบียนรถ... (เช่น 70-1234)").strip()
+            if search_plate:
+                df = df[df['license_plate'].str.contains(search_plate, case=False, na=False)]
+                if df.empty:
+                    st.warning(f"❌ ไม่พบข้อมูลสำหรับทะเบียน: {search_plate}")
+                    st.stop()
+
             all_comps = sorted(df['company_name'].unique().tolist())
             
             # --- Smart Selection View ---
@@ -466,7 +474,9 @@ else:
             target_comps = all_comps if search == "-- ทั้งหมด --" else [search]
             
             for comp in target_comps:
-                with st.expander(f"🏢 {comp}", expanded=(len(target_comps) == 1)):
+                # If searching by plate, expand automatically
+                is_expanded = (len(target_comps) == 1) or (search_plate != "")
+                with st.expander(f"🏢 {comp}", expanded=is_expanded):
                     sub_df = df[df['company_name'] == comp]
                     if st.button(f"🗑️ ลบข้อมูลทั้งหมดของ {comp}", key=f"del_{comp}"):
                         delete_company_data(comp)
