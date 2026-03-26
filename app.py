@@ -137,10 +137,24 @@ def get_all_data():
 def upgrade_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
+    # Upgrade for camera_installations (license_plate)
     try:
         c.execute("SELECT license_plate FROM camera_installations LIMIT 1")
     except:
         c.execute("ALTER TABLE camera_installations ADD COLUMN license_plate TEXT")
+        conn.commit()
+    
+    # Upgrade for ai_memory (position_mapping)
+    try:
+        c.execute("SELECT position_mapping FROM ai_memory LIMIT 1")
+    except:
+        # Check if 'position' column exists from old versions
+        c.execute("PRAGMA table_info(ai_memory)")
+        cols = [row[1] for row in c.fetchall()]
+        if 'position' in cols:
+            c.execute("ALTER TABLE ai_memory RENAME COLUMN position TO position_mapping")
+        else:
+            c.execute("ALTER TABLE ai_memory ADD COLUMN position_mapping TEXT")
         conn.commit()
     conn.close()
 
@@ -346,20 +360,38 @@ else:
                 if st.button("🔍 เริ่มวิเคราะห์ด้วย AI"):
                     with st.spinner("AI กำลังทำงาน..."):
                         ai_results = analyze_camera_vision(all_to_analyze, gemini_api_key, get_dropdown_options("position"))
-                        if "error" in ai_results: st.error(ai_results["error"])
+                        if isinstance(ai_results, dict) and "error" in ai_results: st.error(ai_results["error"])
                         else:
                             st.session_state["ai_suggestions"] = ai_results
-                            st.success("✅ วิเคราะห์เสร็จสิ้น!")
-                            cols = st.columns(4)
-                            for i, (ch, pos) in enumerate(ai_results.items()): cols[i%4].info(f"**{ch}:** {pos}")
+                            # Automatically populate the selectboxes
+                            pos_opts = get_dropdown_options("position")
+                            
+                            cur_c = st.session_state.get("new_comp", "").strip() or st.session_state.get("sel_comp", "")
+                            if cur_c == "-- เลือกจากรายการ --": cur_c = ""
+                            cur_v = st.session_state.get("new_veh", "").strip() or st.session_state.get("sel_veh", "")
+                            if cur_v == "-- เลือกจากรายการ --": cur_v = ""
+
+                            for r in range(4):
+                                for i in range(2):
+                                    ch_num = r*2+i+1
+                                    ch_key = f"CH{ch_num}"
+                                    if isinstance(ai_results, dict) and ch_key in ai_results:
+                                        sug = str(ai_results[ch_key]).strip()
+                                        if sug in pos_opts:
+                                            st.session_state[f"p_{r}_{i}"] = sug
+                                            # Also set suggested length
+                                            st.session_state[f"l_{r}_{i}"] = get_suggested_length(cur_c, cur_v, sug)
+                            
+                            st.success("✅ วิเคราะห์และกรอกข้อมูลให้เสร็จสิ้น!")
+                            st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
     
             with st.form("add_form_final"):
                 c1, c2 = st.columns(2)
                 with c1:
-                    selected_comp = st.selectbox("🏢 เลือกบริษัท", options=["-- เลือกจากรายการ --"] + all_companies)
-                    new_comp = st.text_input("➕ หรือพิมพ์บริษัทใหม่")
-                    in_plate = st.text_input("🔢 ป้ายทะเบียนรถ", placeholder="70-1234")
+                    selected_comp = st.selectbox("🏢 เลือกบริษัท", options=["-- เลือกจากรายการ --"] + all_companies, key="sel_comp")
+                    new_comp = st.text_input("➕ หรือพิมพ์บริษัทใหม่", key="new_comp")
+                    in_plate = st.text_input("🔢 ป้ายทะเบียนรถ", placeholder="70-1234", key="in_plate")
                 with c2:
                     pred = predict_vehicle_type(in_plate)
                     hist = get_last_veh_by_plate(in_plate)
@@ -367,8 +399,8 @@ else:
                     elif pred: st.info(f"💡 AI แนะนำ: {pred}")
                     
                     all_v_opts = sorted(list(set(settings_vehicles + existing_vehicles_data)))
-                    selected_veh = st.selectbox("🚚 เลือกประเภทรถ", options=["-- เลือกจากรายการ --"] + all_v_opts)
-                    new_veh = st.text_input("➕ หรือพิมพ์รถใหม่", value=hist if hist else (pred if pred else ""))
+                    selected_veh = st.selectbox("🚚 เลือกประเภทรถ", options=["-- เลือกจากรายการ --"] + all_v_opts, key="sel_veh")
+                    new_veh = st.text_input("➕ หรือพิมพ์รถใหม่", value=hist if hist else (pred if pred else ""), key="new_veh")
                 
                 st.markdown("**📸 ตำแหน่งติดตั้ง**")
                 pos_opts = [""] + get_dropdown_options("position")
@@ -443,8 +475,13 @@ else:
                     v_types = sorted(sub_df['vehicle_type'].unique().tolist())
                     for v_type in v_types:
                         vt_df = sub_df[sub_df['vehicle_type'] == v_type]
-                        st.markdown(f"<div class='company-card'><b>🚚 {v_type}</b> ({len(vt_df)} รายการ)", unsafe_allow_html=True)
-                        st.table(vt_df[['installation_position', 'cable_length_m', 'license_plate']].rename(columns={'installation_position':'ตำแหน่ง', 'cable_length_m':'สาย (ม.)', 'license_plate':'ทะเบียน'}))
+                        # Get unique license plates for this vehicle type group
+                        plates = vt_df['license_plate'].dropna().unique().tolist()
+                        plates = [p for p in plates if p.strip()] # Filter empty
+                        plate_str = f" <span style='color: #007bff;'>[{', '.join(plates)}]</span>" if plates else ""
+                        
+                        st.markdown(f"<div class='company-card'><b>🚚 {v_type}</b>{plate_str} ({len(vt_df)} รายการ)", unsafe_allow_html=True)
+                        st.table(vt_df[['installation_position', 'cable_length_m']].rename(columns={'installation_position':'ตำแหน่ง', 'cable_length_m':'สาย (ม.)'}))
                         if st.button(f"🗑️ ลบ {v_type}", key=f"del_{comp}_{v_type}"):
                             delete_vehicle_data(comp, v_type)
                             st.rerun()
