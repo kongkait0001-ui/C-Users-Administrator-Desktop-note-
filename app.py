@@ -113,6 +113,13 @@ def add_data(company, vehicle, position, length, plate=""):
     conn.commit()
     conn.close()
 
+def update_cable_length(row_id, new_length):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("UPDATE camera_installations SET cable_length_m = ? WHERE id = ?", (new_length, row_id))
+    conn.commit()
+    conn.close()
+
 def delete_company_data(company):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -491,7 +498,29 @@ else:
                         plate_str = f" <span style='color: #007bff;'>[{', '.join(plates)}]</span>" if plates else ""
                         
                         st.markdown(f"<div class='company-card'><b>🚚 {v_type}</b>{plate_str} ({len(vt_df)} รายการ)", unsafe_allow_html=True)
-                        st.table(vt_df[['installation_position', 'cable_length_m']].rename(columns={'installation_position':'ตำแหน่ง', 'cable_length_m':'สาย (ม.)'}))
+                        
+                        # Editable dataframe
+                        df_display = vt_df[['id', 'installation_position', 'cable_length_m', 'license_plate']].copy()
+                        df_display.columns = ['ID', 'ตำแหน่ง', 'สาย (ม.)', 'ทะเบียน']
+                        
+                        edited_df = st.data_editor(
+                            df_display, 
+                            hide_index=True, 
+                            disabled=["ID", "ตำแหน่ง", "ทะเบียน"], 
+                            width='stretch',
+                            key=f"edit_{comp}_{v_type}"
+                        )
+                        
+                        # --- Check for changes and show Save button if needed ---
+                        if not edited_df.equals(df_display):
+                            if st.button(f"💾 ยืนยันแก้ไขสายสำหรับ {v_type}", key=f"save_{comp}_{v_type}", type="primary"):
+                                for _, original_row in df_display.iterrows():
+                                    edited_row = edited_df[edited_df['ID'] == original_row['ID']].iloc[0]
+                                    if original_row['สาย (ม.)'] != edited_row['สาย (ม.)']:
+                                        update_cable_length(original_row['ID'], float(edited_row['สาย (ม.)']))
+                                st.success("✅ บันทึกความยาวสายเรียบร้อย!")
+                                st.rerun()
+
                         if st.button(f"🗑️ ลบ {v_type}", key=f"del_{comp}_{v_type}"):
                             delete_vehicle_data(comp, v_type)
                             st.rerun()
